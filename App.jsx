@@ -1,25 +1,41 @@
 import React, { useState, useRef, useEffect } from 'react';
 import './App.css';
+// Import Firebase functions
+import { auth, db } from './firebase'; 
+import { 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  signOut, 
+  onAuthStateChanged 
+} from 'firebase/auth';
+import { 
+  doc, 
+  setDoc, 
+  getDoc, 
+  updateDoc, 
+  arrayUnion, 
+  arrayRemove 
+} from 'firebase/firestore';
 
 const API_BASE = "https://saavn.sumit.co/api";
 
 function App() {
   // --- Global UI State ---
-  const [view, setView] = useState('auth'); // 'auth' | 'home' | 'detail' | 'library'
+  const [view, setView] = useState('auth'); 
   const [loading, setLoading] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
-  const [sidebarTab, setSidebarTab] = useState('queue'); // 'queue' | 'lyrics'
+  const [sidebarTab, setSidebarTab] = useState('queue');
   
-  // --- Auth State ---
-  const [user, setUser] = useState(null);
+  // --- Auth & User Data State ---
+  const [user, setUser] = useState(null); // Firebase User Object
+  const [likedSongs, setLikedSongs] = useState([]); // Array from Firestore
   const [authMode, setAuthMode] = useState('login');
-  const [authInput, setAuthInput] = useState({ username: '', password: '' });
+  const [authInput, setAuthInput] = useState({ email: '', password: '' }); // Changed username to email
 
   // --- Data State ---
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
-  const [detailData, setDetailData] = useState(null);
-
+  
   // --- Audio State ---
   const audioRef = useRef(new Audio());
   const [isPlaying, setIsPlaying] = useState(false);
@@ -32,94 +48,138 @@ function App() {
   const [lyrics, setLyrics] = useState(null);
 
   // ==============================
-  // 1. AUTHENTICATION (Existing)
+  // 1. FIREBASE AUTHENTICATION
   // ==============================
 
+  // Listen for Auth Changes (Login/Logout/Refresh)
   useEffect(() => {
-    const storedUser = localStorage.getItem('jioSaavn_user');
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
-      setView('home');
-    }
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (currentUser) {
+        setUser(currentUser);
+        setView('home');
+        // Fetch User Data (Liked Songs) from Firestore
+        const docRef = doc(db, "users", currentUser.uid);
+        const docSnap = await getDoc(docRef);
+        
+        if (docSnap.exists()) {
+          setLikedSongs(docSnap.data().likedSongs || []);
+        } else {
+          // Create doc if it doesn't exist (first time)
+          await setDoc(doc(db, "users", currentUser.uid), { likedSongs: [] });
+        }
+      } else {
+        setUser(null);
+        setLikedSongs([]);
+        setView('auth');
+      }
+    });
+    return () => unsubscribe();
   }, []);
 
-  const handleAuth = () => {
-    if (!authInput.username || !authInput.password) return alert("Please fill all fields");
-    const users = JSON.parse(localStorage.getItem('jioSaavn_users') || "[]");
+  // Fetch Trending when logged in
+  useEffect(() => {
+    if (user && view === 'home' && searchResults.length === 0) {
+      fetchTrending();
+    }
+  }, [user, view]);
 
-    if (authMode === 'signup') {
-      if (users.find(u => u.username === authInput.username)) return alert("User already exists!");
-      const newUser = { ...authInput, likedSongs: [] };
-      users.push(newUser);
-      localStorage.setItem('jioSaavn_users', JSON.stringify(users));
-      loginUser(newUser);
-    } else {
-      const foundUser = users.find(u => u.username === authInput.username && u.password === authInput.password);
-      if (foundUser) loginUser(foundUser);
-      else alert("Invalid credentials");
+  const handleAuth = async () => {
+    if (!authInput.email || !authInput.password) return alert("Please fill all fields");
+    setLoading(true);
+
+    try {
+      if (authMode === 'signup') {
+        // Create User in Auth
+        const cred = await createUserWithEmailAndPassword(auth, authInput.email, authInput.password);
+        // Create User Document in Firestore
+        await setDoc(doc(db, "users", cred.user.uid), {
+          email: authInput.email,
+          likedSongs: []
+        });
+      } else {
+        // Login
+        await signInWithEmailAndPassword(auth, authInput.email, authInput.password);
+      }
+      setAuthInput({ email: '', password: '' });
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const loginUser = (userData) => {
-    setUser(userData);
-    localStorage.setItem('jioSaavn_user', JSON.stringify(userData));
-    setView('home');
-    setAuthInput({ username: '', password: '' });
-  };
-
-  const logout = () => {
-    setUser(null);
-    localStorage.removeItem('jioSaavn_user');
-    setView('auth');
+  const handleLogout = async () => {
+    await signOut(auth);
     setCurrentSong(null);
     setIsPlaying(false);
     audioRef.current.pause();
+    setSearchResults([]);
   };
 
-  const toggleLike = (song) => {
+  // ==============================
+  // 2. FIRESTORE DATA LOGIC
+  // ==============================
+
+  const toggleLike = async (song) => {
     if (!user) return;
-    let updatedLikes;
-    const isLiked = user.likedSongs.some(s => s.id === song.id);
-    if (isLiked) updatedLikes = user.likedSongs.filter(s => s.id !== song.id);
-    else updatedLikes = [...user.likedSongs, song];
+    
+    // Optimistic UI Update (Update local state immediately for speed)
+    const isAlreadyLiked = likedSongs.some(s => s.id === song.id);
+    let newLikes = [];
+    
+    if (isAlreadyLiked) {
+      newLikes = likedSongs.filter(s => s.id !== song.id);
+    } else {
+      newLikes = [...likedSongs, song];
+    }
+    setLikedSongs(newLikes);
 
-    const updatedUser = { ...user, likedSongs: updatedLikes };
-    setUser(updatedUser);
-    localStorage.setItem('jioSaavn_user', JSON.stringify(updatedUser));
-
-    const allUsers = JSON.parse(localStorage.getItem('jioSaavn_users') || "[]");
-    const userIndex = allUsers.findIndex(u => u.username === user.username);
-    if (userIndex !== -1) {
-      allUsers[userIndex] = updatedUser;
-      localStorage.setItem('jioSaavn_users', JSON.stringify(allUsers));
+    // Update Firestore in background
+    const userRef = doc(db, "users", user.uid);
+    try {
+      if (isAlreadyLiked) {
+        await updateDoc(userRef, {
+          likedSongs: arrayRemove(song)
+        });
+      } else {
+        await updateDoc(userRef, {
+          likedSongs: arrayUnion(song)
+        });
+      }
+    } catch (error) {
+      console.error("Error updating likes:", error);
+      // Revert if failed (optional, but good practice)
     }
   };
 
-  const isLiked = (id) => user?.likedSongs.some(s => s.id === id);
+  const isLiked = (id) => likedSongs.some(s => s.id === id);
 
   // ==============================
-  // 2. API & PLAYBACK LOGIC
+  // 3. API & PLAYBACK LOGIC (Same as before)
   // ==============================
+
+  const fetchTrending = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/search/songs?query=Trending&limit=20`);
+      const data = await res.json();
+      if (data.success) setSearchResults(data.data.results);
+    } catch (error) { console.error(error); } 
+    finally { setLoading(false); }
+  };
 
   const fetchLyrics = async (song) => {
     setLyrics("Loading lyrics...");
-    // Check if song has lyrics flag (API sometimes provides hasLyrics: true)
     if (song.hasLyrics === "false" || song.hasLyrics === false) {
-       setLyrics("Lyrics not available for this song.");
-       return;
+       setLyrics("Lyrics not available."); return;
     }
-    
     try {
       const res = await fetch(`${API_BASE}/lyrics?id=${song.id}`);
       const data = await res.json();
       if (data.success && data.data?.lyrics) {
-        setLyrics(data.data.lyrics.replace(/<br>/g, '\n')); // Clean up HTML breaks
-      } else {
-        setLyrics("Lyrics not available.");
-      }
-    } catch (e) {
-      setLyrics("Failed to load lyrics.");
-    }
+        setLyrics(data.data.lyrics.replace(/<br>/g, '\n'));
+      } else { setLyrics("Lyrics not available."); }
+    } catch (e) { setLyrics("Failed to load lyrics."); }
   };
 
   const playQueue = (queue, index) => {
@@ -129,8 +189,6 @@ function App() {
     setCurrentIndex(index);
     const song = queue[index];
     setCurrentSong(song);
-
-    // Fetch Lyrics immediately
     fetchLyrics(song);
 
     let match = song.downloadUrl.find(u => u.quality === quality);
@@ -147,20 +205,17 @@ function App() {
     else { audioRef.current.pause(); setIsPlaying(false); }
   };
 
-  // --- Effects ---
   useEffect(() => {
     const audio = audioRef.current;
     const updateTime = () => { setCurrentTime(audio.currentTime); setDuration(audio.duration || 0); };
     const handleEnded = () => playQueue(currentQueue, currentIndex + 1);
-    
     audio.addEventListener('timeupdate', updateTime);
     audio.addEventListener('ended', handleEnded);
     return () => { audio.removeEventListener('timeupdate', updateTime); audio.removeEventListener('ended', handleEnded); };
   }, [currentIndex, currentQueue]);
 
-  // --- Search & Fetch Details ---
   const handleSearch = async () => {
-    if (!searchQuery) return;
+    if (!searchQuery) { fetchTrending(); return; }
     setLoading(true); setView('home');
     try {
       const res = await fetch(`${API_BASE}/search/songs?query=${encodeURIComponent(searchQuery)}`);
@@ -169,22 +224,11 @@ function App() {
     } catch (error) { console.error(error); } finally { setLoading(false); }
   };
 
-  const fetchDetails = async (id, type) => {
-    setLoading(true);
-    try {
-      let endpoint = type === 'albums' ? `${API_BASE}/albums?id=${id}` : `${API_BASE}/playlists?id=${id}`;
-      const res = await fetch(endpoint);
-      const data = await res.json();
-      if (data.success) { setDetailData(data.data); setView('detail'); }
-    } catch (error) { console.error(error); } finally { setLoading(false); }
-  };
-
-  // Helpers
   const getImg = (img) => Array.isArray(img) ? img[img.length - 1].url : img;
   const fmtTime = (s) => { const m = Math.floor(s/60); const sec = Math.floor(s%60); return `${m}:${sec<10?'0'+sec:sec}`; };
 
   // ==============================
-  // 3. RENDER
+  // 4. RENDER
   // ==============================
 
   if (view === 'auth') {
@@ -193,9 +237,21 @@ function App() {
         <div className="auth-box">
           <h2>JioSaavn Clone</h2>
           <h3>{authMode === 'login' ? 'Login' : 'Sign Up'}</h3>
-          <input type="text" placeholder="Username" value={authInput.username} onChange={e => setAuthInput({...authInput, username: e.target.value})} />
-          <input type="password" placeholder="Password" value={authInput.password} onChange={e => setAuthInput({...authInput, password: e.target.value})} />
-          <button className="auth-btn" onClick={handleAuth}>{authMode === 'login' ? 'Login' : 'Create Account'}</button>
+          <input 
+            type="email" placeholder="Email" // Changed to Email type
+            value={authInput.email} 
+            onChange={e => setAuthInput({...authInput, email: e.target.value})} 
+          />
+          <input 
+            type="password" placeholder="Password" 
+            value={authInput.password} 
+            onChange={e => setAuthInput({...authInput, password: e.target.value})} 
+          />
+          {loading ? <div className="loader" style={{margin:'10px auto'}}></div> : (
+            <button className="auth-btn" onClick={handleAuth}>
+              {authMode === 'login' ? 'Login' : 'Create Account'}
+            </button>
+          )}
           <p className="auth-link" onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')}>
             {authMode === 'login' ? "Don't have an account? Sign up" : "Already have an account? Login"}
           </p>
@@ -208,7 +264,7 @@ function App() {
     <div className="app">
       {/* HEADER */}
       <header>
-        <div className="logo" onClick={() => setView('home')}>JioSaavn</div>
+        <div className="logo" onClick={() => { setView('home'); setSearchQuery(''); fetchTrending(); }}>JioSaavn</div>
         <div className="search-container">
           <input 
             type="text" placeholder="Search songs..." 
@@ -219,7 +275,7 @@ function App() {
         </div>
         <div className="user-menu">
            <button className="user-btn" onClick={() => setView('library')}>❤️ My Library</button>
-           <button className="user-btn" onClick={logout} style={{marginLeft:'10px', background:'#333'}}>Logout</button>
+           <button className="user-btn" onClick={handleLogout} style={{marginLeft:'10px', background:'#333'}}>Logout</button>
         </div>
       </header>
 
@@ -230,7 +286,7 @@ function App() {
         {/* Home View */}
         {view === 'home' && (
           <>
-            <h2>{searchResults.length > 0 ? "Search Results" : "Trending Now"}</h2>
+            <h2>{searchQuery ? `Results for "${searchQuery}"` : "Trending Now"}</h2>
             <div className="grid">
               {searchResults.map((item) => (
                 <div key={item.id} className="card">
@@ -242,7 +298,7 @@ function App() {
                   <button className={`btn-heart ${isLiked(item.id) ? 'liked' : ''}`} onClick={(e) => { e.stopPropagation(); toggleLike(item); }}>&#10084;</button>
                 </div>
               ))}
-              {searchResults.length === 0 && <p className="empty-state">Search for a song to start listening!</p>}
+              {!loading && searchResults.length === 0 && <p className="empty-state">No songs found.</p>}
             </div>
           </>
         )}
@@ -251,11 +307,11 @@ function App() {
         {view === 'library' && (
           <div className="detail-view">
             <h2>My Liked Songs</h2>
-            {user.likedSongs.length === 0 ? <p className="empty-state">No liked songs yet.</p> : (
+            {likedSongs.length === 0 ? <p className="empty-state">No liked songs yet.</p> : (
               <div className="track-list">
-                {user.likedSongs.map((song, idx) => (
+                {likedSongs.map((song, idx) => (
                   <div key={song.id} className={`track ${currentSong?.id === song.id ? 'active' : ''}`}>
-                     <div style={{flex:1, display:'flex', alignItems:'center'}} onClick={() => playQueue(user.likedSongs, idx)}>
+                     <div style={{flex:1, display:'flex', alignItems:'center'}} onClick={() => playQueue(likedSongs, idx)}>
                         <img src={getImg(song.image)} alt="" />
                         <div className="track-info">
                           <span className="track-title">{song.name}</span>
@@ -272,7 +328,7 @@ function App() {
         )}
       </main>
 
-      {/* SIDEBAR (Queue & Lyrics) */}
+      {/* SIDEBAR */}
       <div className={`sidebar ${showSidebar ? 'open' : ''}`}>
         <div className="sidebar-header">
             <div className={`sidebar-tab ${sidebarTab === 'queue' ? 'active' : ''}`} onClick={() => setSidebarTab('queue')}>Up Next</div>
@@ -337,13 +393,8 @@ function App() {
               <option value="320kbps">320k</option>
               <option value="160kbps">160k</option>
            </select>
-           {/* Sidebar Toggle Button */}
-           <button 
-             className={`btn-icon ${showSidebar ? 'active' : ''}`} 
-             onClick={() => setShowSidebar(!showSidebar)}
-             title="Queue & Lyrics"
-           >
-             &#9776; {/* Hamburger/List Icon */}
+           <button className={`btn-icon ${showSidebar ? 'active' : ''}`} onClick={() => setShowSidebar(!showSidebar)}>
+             &#9776;
            </button>
         </div>
       </div>
