@@ -1,0 +1,99 @@
+:root {
+  --primary: #2bc5b4;
+  --dark: #121212;
+  --dark-light: #181818;
+  --text: #ffffff;
+  --text-sec: #b3b3b3;
+  --border: #282828;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
+
+body { background-color: var(--dark); color: var(--text); padding-bottom: 90px; }
+
+/* Utilities */
+.btn-reset { background: none; border: none; cursor: pointer; color: inherit; }
+
+/* Header */
+header {
+  position: sticky; top: 0; z-index: 100;
+  background-color: rgba(18, 18, 18, 0.95);
+  padding: 1rem 2rem;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 20px;
+}
+.logo { font-size: 1.5rem; font-weight: bold; color: var(--primary); cursor: pointer; }
+.search-container { flex: 1; max-width: 600px; display: flex; gap: 10px; }
+input[type="text"] {
+  flex: 1; padding: 10px 15px; border-radius: 20px; border: none; outline: none;
+  background-color: #2a2a2a; color: white;
+}
+.search-select { padding: 0 15px; border-radius: 20px; border: none; background: #2a2a2a; color: white; cursor: pointer; }
+
+/* Main Grid */
+main { padding: 2rem; max-width: 1400px; margin: 0 auto; min-height: 80vh; }
+h2 { margin-bottom: 1rem; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 20px; }
+
+.card {
+  background: var(--dark-light); padding: 15px; border-radius: 8px;
+  transition: background 0.3s; cursor: pointer;
+}
+.card:hover { background: #282828; }
+.card img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 4px; margin-bottom: 10px; }
+.card h3 { font-size: 1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 5px; }
+.card p { font-size: 0.85rem; color: var(--text-sec); }
+
+/* Detail View */
+.detail-header { display: flex; gap: 30px; margin-bottom: 30px; align-items: flex-end; }
+.detail-header img { width: 200px; height: 200px; border-radius: 10px; }
+.detail-info h1 { font-size: 2.5rem; margin-bottom: 10px; }
+.play-all-btn {
+  background: var(--primary); border: none; padding: 10px 30px;
+  border-radius: 25px; color: black; font-weight: bold; cursor: pointer; margin-top: 15px;
+}
+
+.track-list { display: flex; flex-direction: column; gap: 5px; }
+.track {
+  display: flex; align-items: center; padding: 10px; border-radius: 5px;
+  cursor: pointer; gap: 15px; color: var(--text-sec);
+}
+.track:hover { background: rgba(255,255,255,0.1); color: white; }
+.track.active { color: var(--primary); }
+.track img { width: 40px; height: 40px; border-radius: 4px; }
+.track-info { flex: 1; }
+.track-title { display: block; color: white; font-weight: 500; }
+
+/* Player */
+.player {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  background: #181818; border-top: 1px solid #282828;
+  padding: 10px 20px; display: flex; align-items: center; justify-content: space-between;
+  height: 90px; z-index: 200;
+}
+.player-info { display: flex; align-items: center; gap: 15px; width: 30%; }
+.player-info img { width: 56px; height: 56px; border-radius: 4px; background: #333; }
+.player-text h4 { font-size: 0.9rem; margin-bottom: 3px; }
+
+.player-controls { display: flex; flex-direction: column; align-items: center; width: 40%; gap: 5px; }
+.buttons { display: flex; align-items: center; gap: 20px; }
+.btn-control { font-size: 1.2rem; color: var(--text-sec); }
+.btn-control:hover { color: white; }
+.btn-play {
+  background: white; color: black; border-radius: 50%; width: 35px; height: 35px;
+  display: flex; align-items: center; justify-content: center; font-size: 1rem;
+}
+
+.progress-container { width: 100%; display: flex; align-items: center; gap: 10px; font-size: 0.75rem; color: var(--text-sec); }
+.progress-bar { flex: 1; height: 4px; background: #4f4f4f; border-radius: 2px; cursor: pointer; position: relative; }
+.progress-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--text); border-radius: 2px; }
+
+.volume-controls { width: 30%; display: flex; justify-content: flex-end; align-items: center; gap: 10px; }
+.quality-select { background: #333; color: white; border: 1px solid #444; border-radius: 5px; padding: 5px; font-size: 0.8rem; outline: none; }
+
+/* Loader */
+.loader {
+  border: 4px solid #f3f3f3; border-top: 4px solid var(--primary);
+  border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 20px auto;
+}
+@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
