@@ -1,38 +1,28 @@
 import React, { useState, useRef, useEffect } from 'react';
 import './App.css';
-import { auth, db } from './firebase'; 
-import { 
-  signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword, 
-  signOut, 
-  onAuthStateChanged 
-} from 'firebase/auth';
-import { 
-  doc, setDoc, getDoc, updateDoc, arrayUnion, arrayRemove 
-} from 'firebase/firestore';
 
 const API_BASE = "https://saavn.sumit.co/api";
 
 function App() {
-  // UI State
+  // --- UI State ---
   const [view, setView] = useState('auth'); 
   const [loading, setLoading] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
   const [sidebarTab, setSidebarTab] = useState('queue');
   
-  // Data State
-  const [user, setUser] = useState(null);
-  const [likedSongs, setLikedSongs] = useState([]);
+  // --- Auth & Data State (LocalStorage) ---
+  const [user, setUser] = useState(null); 
   const [authMode, setAuthMode] = useState('login');
-  const [authInput, setAuthInput] = useState({ email: '', password: '' });
+  const [authInput, setAuthInput] = useState({ username: '', password: '' });
 
+  // --- Music Data ---
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   
-  // Audio State
+  // --- Player State ---
   const audioRef = useRef(new Audio());
   const [isPlaying, setIsPlaying] = useState(false);
-  const [currentSong, setCurrentSong] = useState(null); // Controls player visibility
+  const [currentSong, setCurrentSong] = useState(null); // This controls player visibility
   const [currentQueue, setCurrentQueue] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(-1);
   const [currentTime, setCurrentTime] = useState(0);
@@ -40,57 +30,107 @@ function App() {
   const [quality, setQuality] = useState('320kbps');
   const [lyrics, setLyrics] = useState(null);
 
-  // --- Auth & Init ---
+  // ==============================
+  // 1. AUTHENTICATION (LocalStorage)
+  // ==============================
+
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      if (currentUser) {
-        setUser(currentUser);
-        setView('home');
-        const docRef = doc(db, "users", currentUser.uid);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) setLikedSongs(docSnap.data().likedSongs || []);
-        else await setDoc(doc(db, "users", currentUser.uid), { likedSongs: [] });
-      } else {
-        setUser(null); setLikedSongs([]); setView('auth');
-      }
-    });
-    return () => unsubscribe();
+    // Check if user is logged in
+    const storedUser = localStorage.getItem('musiq_user');
+    if (storedUser) {
+      setUser(JSON.parse(storedUser));
+      setView('home');
+    }
   }, []);
 
+  // Fetch Trending when User Logs in
   useEffect(() => {
-    if (user && view === 'home' && searchResults.length === 0) fetchTrending();
+    if (user && view === 'home' && searchResults.length === 0) {
+      fetchTrending();
+    }
   }, [user, view]);
 
-  const handleAuth = async () => {
-    if (!authInput.email || !authInput.password) return alert("Please fill all fields");
-    setLoading(true);
-    try {
-      if (authMode === 'signup') {
-        const cred = await createUserWithEmailAndPassword(auth, authInput.email, authInput.password);
-        await setDoc(doc(db, "users", cred.user.uid), { email: authInput.email, likedSongs: [] });
+  const handleAuth = () => {
+    if (!authInput.username || !authInput.password) return alert("Please fill all fields");
+    
+    const users = JSON.parse(localStorage.getItem('musiq_users') || "[]");
+
+    if (authMode === 'signup') {
+      if (users.find(u => u.username === authInput.username)) return alert("User already exists!");
+      
+      const newUser = { 
+        username: authInput.username, 
+        password: authInput.password, 
+        likedSongs: [] 
+      };
+      
+      users.push(newUser);
+      localStorage.setItem('musiq_users', JSON.stringify(users));
+      loginUser(newUser);
+
+    } else {
+      const foundUser = users.find(u => u.username === authInput.username && u.password === authInput.password);
+      if (foundUser) {
+        loginUser(foundUser);
       } else {
-        await signInWithEmailAndPassword(auth, authInput.email, authInput.password);
+        alert("Invalid credentials");
       }
-      setAuthInput({ email: '', password: '' });
-    } catch (error) { alert(error.message); } 
-    finally { setLoading(false); }
+    }
   };
 
-  const toggleLike = async (song) => {
+  const loginUser = (userData) => {
+    setUser(userData);
+    localStorage.setItem('musiq_user', JSON.stringify(userData));
+    setView('home');
+    setAuthInput({ username: '', password: '' });
+  };
+
+  const logout = () => {
+    setUser(null);
+    localStorage.removeItem('musiq_user');
+    setView('auth');
+    setCurrentSong(null);
+    setIsPlaying(false);
+    audioRef.current.pause();
+    setSearchResults([]);
+  };
+
+  // ==============================
+  // 2. DATA LOGIC (Likes)
+  // ==============================
+
+  const toggleLike = (song) => {
     if (!user) return;
-    const isAlreadyLiked = likedSongs.some(s => s.id === song.id);
-    const newLikes = isAlreadyLiked ? likedSongs.filter(s => s.id !== song.id) : [...likedSongs, song];
-    setLikedSongs(newLikes);
+    
+    // 1. Update Local State
+    let updatedLikes;
+    const isAlreadyLiked = user.likedSongs.some(s => s.id === song.id);
 
-    const userRef = doc(db, "users", user.uid);
-    try {
-      await updateDoc(userRef, { likedSongs: isAlreadyLiked ? arrayRemove(song) : arrayUnion(song) });
-    } catch (e) { console.error("Like failed", e); }
+    if (isAlreadyLiked) {
+      updatedLikes = user.likedSongs.filter(s => s.id !== song.id);
+    } else {
+      updatedLikes = [...user.likedSongs, song];
+    }
+
+    const updatedUser = { ...user, likedSongs: updatedLikes };
+    setUser(updatedUser);
+    localStorage.setItem('musiq_user', JSON.stringify(updatedUser));
+
+    // 2. Update Database (LocalStorage Users Array)
+    const allUsers = JSON.parse(localStorage.getItem('musiq_users') || "[]");
+    const userIndex = allUsers.findIndex(u => u.username === user.username);
+    if (userIndex !== -1) {
+      allUsers[userIndex] = updatedUser;
+      localStorage.setItem('musiq_users', JSON.stringify(allUsers));
+    }
   };
 
-  const isLiked = (id) => likedSongs.some(s => s.id === id);
+  const isLiked = (id) => user?.likedSongs.some(s => s.id === id);
 
-  // --- API ---
+  // ==============================
+  // 3. API & PLAYER LOGIC
+  // ==============================
+
   const fetchTrending = async () => {
     setLoading(true);
     try {
@@ -121,7 +161,6 @@ function App() {
     } catch { setLyrics("Failed to load lyrics."); }
   };
 
-  // --- Player Logic ---
   const playQueue = (queue, index) => {
     if (index < 0 || index >= queue.length) return;
     if (queue !== currentQueue) setCurrentQueue(queue);
@@ -157,18 +196,19 @@ function App() {
   const getImg = (img) => Array.isArray(img) ? img[img.length - 1].url : img;
   const fmtTime = (s) => { const m = Math.floor(s/60); const sec = Math.floor(s%60); return `${m}:${sec<10?'0'+sec:sec}`; };
 
-  // --- RENDER ---
+  // ==============================
+  // 4. RENDER
+  // ==============================
+
   if (view === 'auth') {
     return (
       <div className="auth-container">
         <div className="auth-box">
           <h2>Musiq.</h2>
           <h3>{authMode === 'login' ? 'Welcome Back' : 'Join the Vibe'}</h3>
-          <input className="auth-input" type="email" placeholder="Email" value={authInput.email} onChange={e => setAuthInput({...authInput, email: e.target.value})} />
+          <input className="auth-input" type="text" placeholder="Username" value={authInput.username} onChange={e => setAuthInput({...authInput, username: e.target.value})} />
           <input className="auth-input" type="password" placeholder="Password" value={authInput.password} onChange={e => setAuthInput({...authInput, password: e.target.value})} />
-          {loading ? <div className="loader" style={{margin:'20px auto'}}></div> : (
-            <button className="auth-submit" onClick={handleAuth}>{authMode === 'login' ? 'Log In' : 'Sign Up'}</button>
-          )}
+          <button className="auth-submit" onClick={handleAuth}>{authMode === 'login' ? 'Log In' : 'Sign Up'}</button>
           <p className="auth-link" onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')}>
             {authMode === 'login' ? "New here? Create account" : "Have an account? Log In"}
           </p>
@@ -191,7 +231,7 @@ function App() {
         </div>
         <div className="user-menu">
            <button className="btn-pill btn-primary" onClick={() => setView('library')}>My Library</button>
-           <button className="btn-pill btn-sec" onClick={async () => { await signOut(auth); setUser(null); }}>Logout</button>
+           <button className="btn-pill btn-sec" onClick={logout}>Logout</button>
         </div>
       </header>
 
@@ -221,11 +261,11 @@ function App() {
         {view === 'library' && (
           <div className="detail-view">
             <h2>My Collection</h2>
-            {likedSongs.length === 0 ? <p className="empty-state">Your library is empty. Go add some bangers.</p> : (
+            {user.likedSongs.length === 0 ? <p className="empty-state">Your library is empty. Go add some bangers.</p> : (
               <div className="track-list">
-                {likedSongs.map((song, idx) => (
+                {user.likedSongs.map((song, idx) => (
                   <div key={song.id} className={`track ${currentSong?.id === song.id ? 'active' : ''}`}>
-                     <div style={{flex:1, display:'flex', alignItems:'center'}} onClick={() => playQueue(likedSongs, idx)}>
+                     <div style={{flex:1, display:'flex', alignItems:'center'}} onClick={() => playQueue(user.likedSongs, idx)}>
                         <img src={getImg(song.image)} alt="" />
                         <div className="track-info">
                           <span style={{color: 'white', fontWeight:'500'}}>{song.name}</span>
@@ -269,7 +309,7 @@ function App() {
         </div>
       </div>
 
-      {/* PLAYER BAR - Only visible if currentSong exists */}
+      {/* PLAYER BAR */}
       <div className={currentSong ? "player visible" : "player"}>
         {currentSong && (
           <>
