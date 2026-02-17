@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
 import './App.css';
-// Import Firebase functions
 import { auth, db } from './firebase'; 
 import { 
   signInWithEmailAndPassword, 
@@ -9,37 +8,31 @@ import {
   onAuthStateChanged 
 } from 'firebase/auth';
 import { 
-  doc, 
-  setDoc, 
-  getDoc, 
-  updateDoc, 
-  arrayUnion, 
-  arrayRemove 
+  doc, setDoc, getDoc, updateDoc, arrayUnion, arrayRemove 
 } from 'firebase/firestore';
 
 const API_BASE = "https://saavn.sumit.co/api";
 
 function App() {
-  // --- Global UI State ---
+  // UI State
   const [view, setView] = useState('auth'); 
   const [loading, setLoading] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
   const [sidebarTab, setSidebarTab] = useState('queue');
   
-  // --- Auth & User Data State ---
-  const [user, setUser] = useState(null); // Firebase User Object
-  const [likedSongs, setLikedSongs] = useState([]); // Array from Firestore
+  // Data State
+  const [user, setUser] = useState(null);
+  const [likedSongs, setLikedSongs] = useState([]);
   const [authMode, setAuthMode] = useState('login');
-  const [authInput, setAuthInput] = useState({ email: '', password: '' }); // Changed username to email
+  const [authInput, setAuthInput] = useState({ email: '', password: '' });
 
-  // --- Data State ---
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   
-  // --- Audio State ---
+  // Audio State
   const audioRef = useRef(new Audio());
   const [isPlaying, setIsPlaying] = useState(false);
-  const [currentSong, setCurrentSong] = useState(null);
+  const [currentSong, setCurrentSong] = useState(null); // Controls player visibility
   const [currentQueue, setCurrentQueue] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(-1);
   const [currentTime, setCurrentTime] = useState(0);
@@ -47,141 +40,88 @@ function App() {
   const [quality, setQuality] = useState('320kbps');
   const [lyrics, setLyrics] = useState(null);
 
-  // ==============================
-  // 1. FIREBASE AUTHENTICATION
-  // ==============================
-
-  // Listen for Auth Changes (Login/Logout/Refresh)
+  // --- Auth & Init ---
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
         setUser(currentUser);
         setView('home');
-        // Fetch User Data (Liked Songs) from Firestore
         const docRef = doc(db, "users", currentUser.uid);
         const docSnap = await getDoc(docRef);
-        
-        if (docSnap.exists()) {
-          setLikedSongs(docSnap.data().likedSongs || []);
-        } else {
-          // Create doc if it doesn't exist (first time)
-          await setDoc(doc(db, "users", currentUser.uid), { likedSongs: [] });
-        }
+        if (docSnap.exists()) setLikedSongs(docSnap.data().likedSongs || []);
+        else await setDoc(doc(db, "users", currentUser.uid), { likedSongs: [] });
       } else {
-        setUser(null);
-        setLikedSongs([]);
-        setView('auth');
+        setUser(null); setLikedSongs([]); setView('auth');
       }
     });
     return () => unsubscribe();
   }, []);
 
-  // Fetch Trending when logged in
   useEffect(() => {
-    if (user && view === 'home' && searchResults.length === 0) {
-      fetchTrending();
-    }
+    if (user && view === 'home' && searchResults.length === 0) fetchTrending();
   }, [user, view]);
 
   const handleAuth = async () => {
     if (!authInput.email || !authInput.password) return alert("Please fill all fields");
     setLoading(true);
-
     try {
       if (authMode === 'signup') {
-        // Create User in Auth
         const cred = await createUserWithEmailAndPassword(auth, authInput.email, authInput.password);
-        // Create User Document in Firestore
-        await setDoc(doc(db, "users", cred.user.uid), {
-          email: authInput.email,
-          likedSongs: []
-        });
+        await setDoc(doc(db, "users", cred.user.uid), { email: authInput.email, likedSongs: [] });
       } else {
-        // Login
         await signInWithEmailAndPassword(auth, authInput.email, authInput.password);
       }
       setAuthInput({ email: '', password: '' });
-    } catch (error) {
-      alert(error.message);
-    } finally {
-      setLoading(false);
-    }
+    } catch (error) { alert(error.message); } 
+    finally { setLoading(false); }
   };
-
-  const handleLogout = async () => {
-    await signOut(auth);
-    setCurrentSong(null);
-    setIsPlaying(false);
-    audioRef.current.pause();
-    setSearchResults([]);
-  };
-
-  // ==============================
-  // 2. FIRESTORE DATA LOGIC
-  // ==============================
 
   const toggleLike = async (song) => {
     if (!user) return;
-    
-    // Optimistic UI Update (Update local state immediately for speed)
     const isAlreadyLiked = likedSongs.some(s => s.id === song.id);
-    let newLikes = [];
-    
-    if (isAlreadyLiked) {
-      newLikes = likedSongs.filter(s => s.id !== song.id);
-    } else {
-      newLikes = [...likedSongs, song];
-    }
+    const newLikes = isAlreadyLiked ? likedSongs.filter(s => s.id !== song.id) : [...likedSongs, song];
     setLikedSongs(newLikes);
 
-    // Update Firestore in background
     const userRef = doc(db, "users", user.uid);
     try {
-      if (isAlreadyLiked) {
-        await updateDoc(userRef, {
-          likedSongs: arrayRemove(song)
-        });
-      } else {
-        await updateDoc(userRef, {
-          likedSongs: arrayUnion(song)
-        });
-      }
-    } catch (error) {
-      console.error("Error updating likes:", error);
-      // Revert if failed (optional, but good practice)
-    }
+      await updateDoc(userRef, { likedSongs: isAlreadyLiked ? arrayRemove(song) : arrayUnion(song) });
+    } catch (e) { console.error("Like failed", e); }
   };
 
   const isLiked = (id) => likedSongs.some(s => s.id === id);
 
-  // ==============================
-  // 3. API & PLAYBACK LOGIC (Same as before)
-  // ==============================
-
+  // --- API ---
   const fetchTrending = async () => {
     setLoading(true);
     try {
       const res = await fetch(`${API_BASE}/search/songs?query=Trending&limit=20`);
       const data = await res.json();
       if (data.success) setSearchResults(data.data.results);
-    } catch (error) { console.error(error); } 
-    finally { setLoading(false); }
+    } catch (e) { console.error(e); } finally { setLoading(false); }
+  };
+
+  const handleSearch = async () => {
+    if (!searchQuery) { fetchTrending(); return; }
+    setLoading(true); setView('home');
+    try {
+      const res = await fetch(`${API_BASE}/search/songs?query=${encodeURIComponent(searchQuery)}`);
+      const data = await res.json();
+      if (data.success) setSearchResults(data.data.results);
+    } catch (e) { console.error(e); } finally { setLoading(false); }
   };
 
   const fetchLyrics = async (song) => {
     setLyrics("Loading lyrics...");
-    if (song.hasLyrics === "false" || song.hasLyrics === false) {
-       setLyrics("Lyrics not available."); return;
-    }
+    if (!song.hasLyrics || song.hasLyrics === "false") { setLyrics("No lyrics available."); return; }
     try {
       const res = await fetch(`${API_BASE}/lyrics?id=${song.id}`);
       const data = await res.json();
-      if (data.success && data.data?.lyrics) {
-        setLyrics(data.data.lyrics.replace(/<br>/g, '\n'));
-      } else { setLyrics("Lyrics not available."); }
-    } catch (e) { setLyrics("Failed to load lyrics."); }
+      if (data.success && data.data?.lyrics) setLyrics(data.data.lyrics.replace(/<br>/g, '\n'));
+      else setLyrics("No lyrics available.");
+    } catch { setLyrics("Failed to load lyrics."); }
   };
 
+  // --- Player Logic ---
   const playQueue = (queue, index) => {
     if (index < 0 || index >= queue.length) return;
     if (queue !== currentQueue) setCurrentQueue(queue);
@@ -214,46 +154,23 @@ function App() {
     return () => { audio.removeEventListener('timeupdate', updateTime); audio.removeEventListener('ended', handleEnded); };
   }, [currentIndex, currentQueue]);
 
-  const handleSearch = async () => {
-    if (!searchQuery) { fetchTrending(); return; }
-    setLoading(true); setView('home');
-    try {
-      const res = await fetch(`${API_BASE}/search/songs?query=${encodeURIComponent(searchQuery)}`);
-      const data = await res.json();
-      if (data.success) setSearchResults(data.data.results);
-    } catch (error) { console.error(error); } finally { setLoading(false); }
-  };
-
   const getImg = (img) => Array.isArray(img) ? img[img.length - 1].url : img;
   const fmtTime = (s) => { const m = Math.floor(s/60); const sec = Math.floor(s%60); return `${m}:${sec<10?'0'+sec:sec}`; };
 
-  // ==============================
-  // 4. RENDER
-  // ==============================
-
+  // --- RENDER ---
   if (view === 'auth') {
     return (
       <div className="auth-container">
         <div className="auth-box">
-          <h2>JioSaavn Clone</h2>
-          <h3>{authMode === 'login' ? 'Login' : 'Sign Up'}</h3>
-          <input 
-            type="email" placeholder="Email" // Changed to Email type
-            value={authInput.email} 
-            onChange={e => setAuthInput({...authInput, email: e.target.value})} 
-          />
-          <input 
-            type="password" placeholder="Password" 
-            value={authInput.password} 
-            onChange={e => setAuthInput({...authInput, password: e.target.value})} 
-          />
-          {loading ? <div className="loader" style={{margin:'10px auto'}}></div> : (
-            <button className="auth-btn" onClick={handleAuth}>
-              {authMode === 'login' ? 'Login' : 'Create Account'}
-            </button>
+          <h2>Musiq.</h2>
+          <h3>{authMode === 'login' ? 'Welcome Back' : 'Join the Vibe'}</h3>
+          <input className="auth-input" type="email" placeholder="Email" value={authInput.email} onChange={e => setAuthInput({...authInput, email: e.target.value})} />
+          <input className="auth-input" type="password" placeholder="Password" value={authInput.password} onChange={e => setAuthInput({...authInput, password: e.target.value})} />
+          {loading ? <div className="loader" style={{margin:'20px auto'}}></div> : (
+            <button className="auth-submit" onClick={handleAuth}>{authMode === 'login' ? 'Log In' : 'Sign Up'}</button>
           )}
           <p className="auth-link" onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')}>
-            {authMode === 'login' ? "Don't have an account? Sign up" : "Already have an account? Login"}
+            {authMode === 'login' ? "New here? Create account" : "Have an account? Log In"}
           </p>
         </div>
       </div>
@@ -262,64 +179,60 @@ function App() {
 
   return (
     <div className="app">
-      {/* HEADER */}
       <header>
-        <div className="logo" onClick={() => { setView('home'); setSearchQuery(''); fetchTrending(); }}>JioSaavn</div>
+        <div className="logo" onClick={() => { setView('home'); setSearchQuery(''); fetchTrending(); }}>Musiq.</div>
         <div className="search-container">
           <input 
-            type="text" placeholder="Search songs..." 
+            type="text" placeholder="Search artists, songs..." 
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
           />
         </div>
         <div className="user-menu">
-           <button className="user-btn" onClick={() => setView('library')}>❤️ My Library</button>
-           <button className="user-btn" onClick={handleLogout} style={{marginLeft:'10px', background:'#333'}}>Logout</button>
+           <button className="btn-pill btn-primary" onClick={() => setView('library')}>My Library</button>
+           <button className="btn-pill btn-sec" onClick={async () => { await signOut(auth); setUser(null); }}>Logout</button>
         </div>
       </header>
 
-      {/* MAIN CONTENT */}
       <main>
         {loading && <div className="loader"></div>}
 
-        {/* Home View */}
         {view === 'home' && (
           <>
             <h2>{searchQuery ? `Results for "${searchQuery}"` : "Trending Now"}</h2>
             <div className="grid">
               {searchResults.map((item) => (
-                <div key={item.id} className="card">
-                  <div onClick={() => playQueue([item], 0)}>
-                    <img src={getImg(item.image)} alt="" />
-                    <h3>{item.name}</h3>
-                    <p>{item.primaryArtists}</p>
-                  </div>
-                  <button className={`btn-heart ${isLiked(item.id) ? 'liked' : ''}`} onClick={(e) => { e.stopPropagation(); toggleLike(item); }}>&#10084;</button>
+                <div key={item.id} className="card" onClick={() => playQueue([item], 0)}>
+                  <img src={getImg(item.image)} alt="" />
+                  <h3>{item.name}</h3>
+                  <p>{item.primaryArtists}</p>
+                  <button 
+                    className={`btn-heart ${isLiked(item.id) ? 'liked' : ''}`} 
+                    onClick={(e) => { e.stopPropagation(); toggleLike(item); }}
+                  >&#10084;</button>
                 </div>
               ))}
-              {!loading && searchResults.length === 0 && <p className="empty-state">No songs found.</p>}
+              {!loading && searchResults.length === 0 && <p className="empty-state">No vibes found.</p>}
             </div>
           </>
         )}
 
-        {/* Library View */}
         {view === 'library' && (
           <div className="detail-view">
-            <h2>My Liked Songs</h2>
-            {likedSongs.length === 0 ? <p className="empty-state">No liked songs yet.</p> : (
+            <h2>My Collection</h2>
+            {likedSongs.length === 0 ? <p className="empty-state">Your library is empty. Go add some bangers.</p> : (
               <div className="track-list">
                 {likedSongs.map((song, idx) => (
                   <div key={song.id} className={`track ${currentSong?.id === song.id ? 'active' : ''}`}>
                      <div style={{flex:1, display:'flex', alignItems:'center'}} onClick={() => playQueue(likedSongs, idx)}>
                         <img src={getImg(song.image)} alt="" />
                         <div className="track-info">
-                          <span className="track-title">{song.name}</span>
-                          <span style={{fontSize:'0.8rem', opacity:0.7}}>{song.primaryArtists}</span>
+                          <span style={{color: 'white', fontWeight:'500'}}>{song.name}</span>
+                          <span style={{fontSize:'0.8rem', opacity:0.7, display:'block'}}>{song.primaryArtists}</span>
                         </div>
                      </div>
-                     <button className="btn-heart liked" onClick={() => toggleLike(song)}>&#10084;</button>
-                     <span style={{marginLeft:'15px'}}>{fmtTime(song.duration)}</span>
+                     <button className="btn-pill btn-sec" style={{padding:'5px 10px', fontSize:'0.8rem'}} onClick={() => toggleLike(song)}>Remove</button>
                   </div>
                 ))}
               </div>
@@ -333,70 +246,72 @@ function App() {
         <div className="sidebar-header">
             <div className={`sidebar-tab ${sidebarTab === 'queue' ? 'active' : ''}`} onClick={() => setSidebarTab('queue')}>Up Next</div>
             <div className={`sidebar-tab ${sidebarTab === 'lyrics' ? 'active' : ''}`} onClick={() => setSidebarTab('lyrics')}>Lyrics</div>
+            <div className="sidebar-tab" onClick={() => setShowSidebar(false)} style={{flex:0, padding:'20px'}}>✕</div>
         </div>
         <div className="sidebar-content">
             {sidebarTab === 'queue' ? (
                 currentQueue.length > 0 ? (
                     currentQueue.map((song, idx) => (
-                        <div key={`${song.id}-${idx}`} className={`queue-item ${currentIndex === idx ? 'active' : ''}`} onClick={() => playQueue(currentQueue, idx)}>
-                            <img src={getImg(song.image)} alt="" />
-                            <div className="queue-info">
-                                <h4>{song.name}</h4>
-                                <p>{song.primaryArtists}</p>
+                        <div key={`${song.id}-${idx}`} className={`track ${currentIndex === idx ? 'active' : ''}`} onClick={() => playQueue(currentQueue, idx)}>
+                            <img src={getImg(song.image)} alt="" style={{width:'35px', height:'35px'}} />
+                            <div style={{overflow:'hidden'}}>
+                                <h4 style={{fontSize:'0.85rem', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>{song.name}</h4>
+                                <p style={{fontSize:'0.75rem', color:'#888'}}>{song.primaryArtists}</p>
                             </div>
-                            {currentIndex === idx && <span style={{marginLeft:'auto', fontSize:'0.8rem', color:'var(--primary)'}}>&#9835;</span>}
                         </div>
                     ))
-                ) : <div className="lyrics-placeholder">Queue is empty</div>
+                ) : <div className="empty-state" style={{fontSize:'0.9rem', marginTop:'20px'}}>Queue is empty</div>
             ) : (
-                <div className="lyrics-container">
-                    {currentSong ? (lyrics || "Loading...") : <div className="lyrics-placeholder">Play a song to see lyrics</div>}
+                <div style={{padding:'10px', whiteSpace:'pre-wrap', lineHeight:'1.6', color:'#ddd', fontSize:'0.9rem', textAlign:'center'}}>
+                    {currentSong ? (lyrics || "Loading...") : "Play a song to see lyrics"}
                 </div>
             )}
         </div>
       </div>
 
-      {/* PLAYER BAR */}
-      <div className="player">
-        <div className="player-info">
-          <img src={currentSong ? getImg(currentSong.image) : "https://via.placeholder.com/50"} alt="" />
-          <div className="player-text">
-            <h4>{currentSong ? currentSong.name : "Not Playing"}</h4>
-            <p style={{fontSize:'0.8rem', color:'#b3b3b3'}}>{currentSong?.primaryArtists || ""}</p>
-          </div>
-          {currentSong && <button className={`btn-heart ${isLiked(currentSong.id) ? 'liked' : ''}`} onClick={() => toggleLike(currentSong)} style={{marginLeft:'10px'}}>&#10084;</button>}
-        </div>
-
-        <div className="player-controls">
-          <div className="buttons">
-            <button className="btn-reset btn-control" onClick={() => playQueue(currentQueue, currentIndex - 1)}>&#9664;&#9664;</button>
-            <button className="btn-reset btn-play" onClick={togglePlay}>
-              {isPlaying ? <span>&#10074;&#10074;</span> : <span>&#9658;</span>}
-            </button>
-            <button className="btn-reset btn-control" onClick={() => playQueue(currentQueue, currentIndex + 1)}>&#9654;&#9654;</button>
-          </div>
-          <div className="progress-container">
-            <span>{fmtTime(currentTime)}</span>
-            <div className="progress-bar" onClick={(e) => {
-               const width = e.currentTarget.clientWidth;
-               const clickX = e.nativeEvent.offsetX;
-               audioRef.current.currentTime = (clickX / width) * duration;
-            }}>
-              <div className="progress-fill" style={{width: `${(currentTime / duration) * 100}%`}}></div>
+      {/* PLAYER BAR - Only visible if currentSong exists */}
+      <div className={currentSong ? "player visible" : "player"}>
+        {currentSong && (
+          <>
+            <div className="player-info">
+              <img src={getImg(currentSong.image)} alt="" />
+              <div className="player-text">
+                <h4>{currentSong.name}</h4>
+                <p>{currentSong.primaryArtists}</p>
+              </div>
+              <button className={`btn-heart ${isLiked(currentSong.id) ? 'liked' : ''}`} style={{position:'static', opacity:1, transform:'scale(1)', background:'transparent'}} onClick={() => toggleLike(currentSong)}>&#10084;</button>
             </div>
-            <span>{fmtTime(duration)}</span>
-          </div>
-        </div>
-        
-        <div className="volume-controls">
-           <select className="quality-select" value={quality} onChange={(e) => setQuality(e.target.value)}>
-              <option value="320kbps">320k</option>
-              <option value="160kbps">160k</option>
-           </select>
-           <button className={`btn-icon ${showSidebar ? 'active' : ''}`} onClick={() => setShowSidebar(!showSidebar)}>
-             &#9776;
-           </button>
-        </div>
+
+            <div className="player-controls">
+              <div className="buttons">
+                <button className="btn-control" onClick={() => playQueue(currentQueue, currentIndex - 1)}>&#9664;</button>
+                <button className="btn-play" onClick={togglePlay}>
+                  {isPlaying ? <span>&#10074;&#10074;</span> : <span style={{marginLeft:'3px'}}>&#9658;</span>}
+                </button>
+                <button className="btn-control" onClick={() => playQueue(currentQueue, currentIndex + 1)}>&#9654;</button>
+              </div>
+              <div className="progress-container">
+                <span>{fmtTime(currentTime)}</span>
+                <div className="progress-bar" onClick={(e) => {
+                   const width = e.currentTarget.clientWidth;
+                   const clickX = e.nativeEvent.offsetX;
+                   audioRef.current.currentTime = (clickX / width) * duration;
+                }}>
+                  <div className="progress-fill" style={{width: `${(currentTime / duration) * 100}%`}}></div>
+                </div>
+                <span>{fmtTime(duration)}</span>
+              </div>
+            </div>
+            
+            <div style={{display:'flex', gap:'10px', alignItems:'center', width:'30%', justifyContent:'flex-end'}}>
+               <select style={{background:'#222', color:'white', border:'none', borderRadius:'5px', padding:'5px', fontSize:'0.7rem'}} value={quality} onChange={(e) => setQuality(e.target.value)}>
+                  <option value="320kbps">HQ</option>
+                  <option value="160kbps">SQ</option>
+               </select>
+               <button className="btn-control" onClick={() => setShowSidebar(!showSidebar)}>&#9776;</button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
