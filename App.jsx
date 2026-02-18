@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import './App.css';
 import toast, { Toaster } from 'react-hot-toast';
 
-// --- ICONS (ALL REQUIRED) ---
+// --- ICONS ---
 const Icons = {
   Home: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>,
   Search: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
@@ -29,25 +29,28 @@ import { doc, setDoc, getDoc, updateDoc, arrayUnion, arrayRemove, collection, ad
 const API_BASE = "https://saavn.sumit.co/api";
 
 function App() {
-  // UI State
+  // --- UI STATE ---
   const [view, setView] = useState('loading'); 
   const [tab, setTab] = useState('home');   
   const [loading, setLoading] = useState(false);
 
-  // User State
+  // --- USER STATE ---
   const [user, setUser] = useState(null);
   const [likedSongs, setLikedSongs] = useState([]);
   const [userPlaylists, setUserPlaylists] = useState([]); 
   const [authMode, setAuthMode] = useState('login');
   const [authInput, setAuthInput] = useState({ email: '', password: '' });
 
-  // Data State
+  // --- DATA STATE ---
   const [searchQuery, setSearchQuery] = useState('');
+  // Added separate states for all search categories
   const [resSongs, setResSongs] = useState([]);
   const [resAlbums, setResAlbums] = useState([]);
+  const [resArtists, setResArtists] = useState([]);
+  const [resPlaylists, setResPlaylists] = useState([]);
   const [homeData, setHomeData] = useState({ trending:[], albums:[], playlists:[] });
   
-  // App Logic
+  // --- DETAILS & MODALS ---
   const [selectedItem, setSelectedItem] = useState(null);
   const [detailsSongs, setDetailsSongs] = useState([]);
   const [showLyrics, setShowLyrics] = useState(false);
@@ -58,7 +61,7 @@ function App() {
   const [songToAdd, setSongToAdd] = useState(null);
   const [newPlaylistName, setNewPlaylistName] = useState("");
 
-  // Player State
+  // --- PLAYER STATE ---
   const audioRef = useRef(new Audio());
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentSong, setCurrentSong] = useState(null);
@@ -67,8 +70,9 @@ function App() {
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
+  const [quality, setQuality] = useState('320kbps');
   const [isShuffle, setIsShuffle] = useState(false);
-  const [repeatMode, setRepeatMode] = useState('none'); // 'none', 'all', 'one'
+  const [repeatMode, setRepeatMode] = useState('none'); 
 
   // --- HELPERS ---
   const getImg = (i) => { if(Array.isArray(i)) return i[i.length-1]?.url || i[0]?.url; return i || "https://via.placeholder.com/150"; }
@@ -76,7 +80,7 @@ function App() {
   const getDesc = (i) => i?.primaryArtists || i?.description || i?.year || "";
   const isLiked = (id) => likedSongs.some(s => String(s.id) === String(id));
 
-  // --- DATA FETCHING ---
+  // --- 1. DATA FETCHING ---
   const fetchHome = async () => {
     setLoading(true);
     try {
@@ -85,7 +89,11 @@ function App() {
         fetch(`${API_BASE}/search/albums?query=New&limit=15`).then(r=>r.json()).catch(()=>({})),
         fetch(`${API_BASE}/search/playlists?query=Hits&limit=15`).then(r=>r.json()).catch(()=>({}))
       ]);
-      setHomeData({ trending: s?.data?.results || [], albums: a?.data?.results || [], playlists: p?.data?.results || [] });
+      setHomeData({ 
+        trending: s?.data?.results || [], 
+        albums: a?.data?.results || [], 
+        playlists: p?.data?.results || [] 
+      });
     } catch(e) { console.error(e); } finally { setLoading(false); }
   };
 
@@ -93,12 +101,17 @@ function App() {
     if(!searchQuery) return;
     setLoading(true); setTab('search');
     try {
-      const [s, a] = await Promise.all([
+      // Fetches 4 Categories
+      const [s, a, ar, p] = await Promise.all([
         fetch(`${API_BASE}/search/songs?query=${encodeURIComponent(searchQuery)}`).then(r=>r.json()),
-        fetch(`${API_BASE}/search/albums?query=${encodeURIComponent(searchQuery)}`).then(r=>r.json())
+        fetch(`${API_BASE}/search/albums?query=${encodeURIComponent(searchQuery)}`).then(r=>r.json()),
+        fetch(`${API_BASE}/search/artists?query=${encodeURIComponent(searchQuery)}`).then(r=>r.json()),
+        fetch(`${API_BASE}/search/playlists?query=${encodeURIComponent(searchQuery)}`).then(r=>r.json())
       ]);
       setResSongs(s?.data?.results || []);
       setResAlbums(a?.data?.results || []);
+      setResArtists(ar?.data?.results || []);
+      setResPlaylists(p?.data?.results || []);
     } catch(e) { console.error(e); } finally { setLoading(false); }
   };
 
@@ -117,7 +130,7 @@ function App() {
     } catch(e) { toast.error("Error loading lyrics", { id: toastId }); }
   };
 
-  // --- PLAYER ENGINE ---
+  // --- 2. PLAYER LOGIC ---
   const playSong = (list, idx) => {
     if(!list || idx < 0 || !list[idx]) return;
     if(list !== queue) setQueue(list);
@@ -125,7 +138,7 @@ function App() {
     const s = list[idx];
     setCurrentSong(s);
     
-    const url = s.downloadUrl?.find(u=>u.quality==='320kbps')?.url || s.downloadUrl?.[0]?.url;
+    const url = s.downloadUrl?.find(u=>u.quality===quality)?.url || s.downloadUrl?.[0]?.url;
     if(url) {
         if(audioRef.current.src !== url) {
             audioRef.current.src = url;
@@ -161,7 +174,7 @@ function App() {
     }
   };
 
-  // --- PLAYLIST & LIKE LOGIC ---
+  // --- 3. PLAYLISTS & LIKES ---
   const toggleLike = async (item) => {
     if(!user) return toast.error("Please Login");
     const liked = isLiked(item.id);
@@ -200,20 +213,35 @@ function App() {
     } catch(e) { toast.error("Failed"); }
   };
 
+  // --- 4. DETAILS VIEW & NAVIGATION ---
   const handleCardClick = async (item, type) => {
-    if (type === 'song') { playSong([item], 0); }
-    else if (type === 'playlist_custom') { setSelectedItem(item); setTab('details'); setDetailsSongs(item.songs || []); }
+    if (type === 'song') { 
+      playSong([item], 0); 
+    } 
+    else if (type === 'playlist_custom') { 
+      setSelectedItem(item); setTab('details'); setDetailsSongs(item.songs || []); 
+    } 
     else {
+      // Handles Albums, Playlists, and ARTISTS
       setSelectedItem(item); setTab('details'); setLoading(true); setDetailsSongs([]);
       try {
-        const url = type === 'album' ? `${API_BASE}/albums?id=${item.id}` : `${API_BASE}/playlists?id=${item.id}`;
-        const res = await fetch(url).then(r=>r.json());
-        if(res.success && res.data.songs) setDetailsSongs(res.data.songs);
+        let endpoint = '';
+        if(type === 'album') endpoint = `${API_BASE}/albums?id=${item.id}`;
+        else if(type === 'playlist') endpoint = `${API_BASE}/playlists?id=${item.id}`;
+        else if(type === 'artist') endpoint = `${API_BASE}/artists?id=${item.id}`; // Artist support
+        
+        const res = await fetch(endpoint).then(r=>r.json());
+        
+        if(res.success) {
+            // Artists usually return 'topSongs', others return 'songs'
+            const songs = res.data.songs || res.data.topSongs || [];
+            setDetailsSongs(songs);
+        }
       } catch(e) { console.error(e); } finally { setLoading(false); }
     }
   };
 
-  // --- EFFECTS (Auth, Audio, Keys, Title) ---
+  // --- 5. AUTH & LIFECYCLE ---
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
         if(u) {
@@ -241,7 +269,6 @@ function App() {
     } catch(e) { toast.error(e.message, { id: toastId }); }
   };
 
-  // Audio Event Listeners
   useEffect(() => {
     const a = audioRef.current;
     const updateTime = () => { setProgress(a.currentTime); setDuration(a.duration||0); };
@@ -256,7 +283,6 @@ function App() {
     return () => { a.removeEventListener('timeupdate', updateTime); a.removeEventListener('ended', handleEnd); };
   }, [queue, qIndex, repeatMode, isShuffle]);
 
-  // Keyboard Shortcuts
   useEffect(() => {
     const handleKey = (e) => {
         if(e.target.tagName==='INPUT') return;
@@ -268,9 +294,8 @@ function App() {
     return () => window.removeEventListener('keydown', handleKey);
   }, [isPlaying]);
 
-  // Document Title
   useEffect(() => {
-    document.title = currentSong ? `${getName(currentSong)} • Void` : "Void Web Player";
+    document.title = currentSong ? `${getName(currentSong)} • Musiq` : "Musiq Web Player";
   }, [currentSong]);
 
   // --- RENDER ---
@@ -280,7 +305,7 @@ function App() {
     <div className="auth-container">
         <Toaster/>
         <div className="auth-box">
-            <h1 style={{color:'var(--primary)', marginBottom:30}}>Void.</h1>
+            <h1 style={{color:'var(--primary)', marginBottom:30}}>Musiq.</h1>
             <input className="auth-input" placeholder="Email" onChange={e=>setAuthInput({...authInput,email:e.target.value})}/>
             <input className="auth-input" type="password" placeholder="Password" onChange={e=>setAuthInput({...authInput,password:e.target.value})}/>
             <button className="auth-btn" onClick={handleAuth}>{authMode==='login'?'Sign In':'Sign Up'}</button>
@@ -354,7 +379,7 @@ function App() {
 
         {/* --- SIDEBAR --- */}
         <div className="sidebar">
-            <div className="brand">Void.</div>
+            <div className="brand">Musiq.</div>
             <div className="nav-links">
                 <div className={`nav-item ${tab==='home'?'active':''}`} onClick={()=>setTab('home')}><Icons.Home/> Home</div>
                 <div className={`nav-item ${tab==='library'?'active':''}`} onClick={()=>setTab('library')}><Icons.Library/> Liked Songs</div>
@@ -422,7 +447,8 @@ function App() {
                 {/* SEARCH */}
                 {tab === 'search' && (
                     <div className="section">
-                        <div className="section-header">Results</div>
+                        {/* Songs */}
+                        <div className="section-header">Songs</div>
                         <div className="grid">
                             {resSongs.map(s => (
                                 <div key={s.id} className="card" onClick={()=>handleCardClick(s, 'song')}>
@@ -436,16 +462,53 @@ function App() {
                                 </div>
                             ))}
                         </div>
-                        <div className="section-header" style={{marginTop:40}}>Albums</div>
-                        <div className="horizontal-scroll">
-                            {resAlbums.map(a => (
-                                <div key={a.id} className="card" onClick={()=>handleCardClick(a, 'album')}>
-                                    <img src={getImg(a.image)} alt=""/>
-                                    <h3>{getName(a)}</h3>
-                                    <p>{a.year}</p>
+
+                        {/* Albums */}
+                        {resAlbums.length > 0 && (
+                            <>
+                                <div className="section-header" style={{marginTop:40}}>Albums</div>
+                                <div className="horizontal-scroll">
+                                    {resAlbums.map(a => (
+                                        <div key={a.id} className="card" onClick={()=>handleCardClick(a, 'album')}>
+                                            <img src={getImg(a.image)} alt=""/>
+                                            <h3>{getName(a)}</h3>
+                                            <p>{a.year}</p>
+                                        </div>
+                                    ))}
                                 </div>
-                            ))}
-                        </div>
+                            </>
+                        )}
+
+                        {/* Artists */}
+                        {resArtists.length > 0 && (
+                            <>
+                                <div className="section-header" style={{marginTop:40}}>Artists</div>
+                                <div className="horizontal-scroll">
+                                    {resArtists.map(a => (
+                                        <div key={a.id} className="card" onClick={()=>handleCardClick(a, 'artist')}>
+                                            <img src={getImg(a.image)} alt="" style={{borderRadius:'50%'}}/>
+                                            <h3 style={{textAlign:'center'}}>{getName(a)}</h3>
+                                        </div>
+                                    ))}
+                                </div>
+                            </>
+                        )}
+
+                        {/* Playlists */}
+                        {resPlaylists.length > 0 && (
+                            <>
+                                <div className="section-header" style={{marginTop:40}}>Playlists</div>
+                                <div className="horizontal-scroll">
+                                    {resPlaylists.map(p => (
+                                        <div key={p.id} className="card" onClick={()=>handleCardClick(p, 'playlist')}>
+                                            <img src={getImg(p.image)} alt=""/>
+                                            <h3>{getName(p)}</h3>
+                                            <p>{p.language}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            </>
+                        )}
                     </div>
                 )}
 
@@ -479,6 +542,18 @@ function App() {
                                         <img src={getImg(a.image)} alt=""/>
                                         <h3>{getName(a)}</h3>
                                         <p>{a.year}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                        <div className="section">
+                            <div className="section-header">Top Playlists</div>
+                            <div className="horizontal-scroll">
+                                {homeData.playlists.map(p => (
+                                    <div key={p.id} className="card" onClick={()=>handleCardClick(p, 'playlist')}>
+                                        <img src={getImg(p.image)} alt=""/>
+                                        <h3>{getName(p)}</h3>
+                                        <p>{p.language}</p>
                                     </div>
                                 ))}
                             </div>
