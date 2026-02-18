@@ -15,7 +15,7 @@ const API_BASE = "https://saavn.sumit.co/api";
 
 function App() {
   // Navigation & View State
-  const [view, setView] = useState('auth'); 
+  const [view, setView] = useState('loading'); // Start with a loading state
   const [tab, setTab] = useState('home');   
   const [loading, setLoading] = useState(false);
 
@@ -29,7 +29,7 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   
-  // Homepage Sections
+  // Homepage Data
   const [trendingSongs, setTrendingSongs] = useState([]);
   const [newAlbums, setNewAlbums] = useState([]);
   const [topPlaylists, setTopPlaylists] = useState([]);
@@ -46,15 +46,40 @@ function App() {
   const [volume, setVolume] = useState(1);
 
   // ==============================
-  // 1. AUTHENTICATION
+  // 1. DATA FETCHING (Defined First to avoid Crash)
+  // ==============================
+  const fetchHomepageData = async () => {
+    setLoading(true);
+    try {
+      const [songs, albums, playlists] = await Promise.all([
+        fetch(`${API_BASE}/search/songs?query=Top 50&limit=15`).then(r => r.json()),
+        fetch(`${API_BASE}/search/albums?query=New&limit=15`).then(r => r.json()),
+        fetch(`${API_BASE}/search/playlists?query=Hits&limit=15`).then(r => r.json())
+      ]);
+
+      if(songs.success && songs.data) setTrendingSongs(songs.data.results);
+      if(albums.success && albums.data) setNewAlbums(albums.data.results);
+      if(playlists.success && playlists.data) setTopPlaylists(playlists.data.results);
+
+    } catch (e) { 
+      console.error("Home load error", e); 
+    } finally { 
+      setLoading(false); 
+    }
+  };
+
+  // ==============================
+  // 2. AUTHENTICATION LISTENER
   // ==============================
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
+        // User Logged In
         setUser(currentUser);
         setView('app');
-        fetchHomepageData(); // Load home data on login
+        fetchHomepageData(); // Safe to call now
         
+        // Load Firestore Data
         try {
           const docRef = doc(db, "users", currentUser.uid);
           const docSnap = await getDoc(docRef);
@@ -63,8 +88,10 @@ function App() {
           } else {
             await setDoc(docRef, { email: currentUser.email, likedSongs: [] });
           }
-        } catch (err) { console.error(err); }
+        } catch (err) { console.error("Firestore Error:", err); }
+
       } else {
+        // User Logged Out
         setUser(null);
         setLikedSongs([]);
         setView('auth');
@@ -73,6 +100,7 @@ function App() {
     return () => unsubscribe();
   }, []);
 
+  // Auth Actions
   const handleAuth = async () => {
     if (!authInput.email || !authInput.password) return alert("Fill all fields");
     try {
@@ -93,23 +121,16 @@ function App() {
   };
 
   // ==============================
-  // 2. DATA LOGIC
+  // 3. APP LOGIC
   // ==============================
-  const fetchHomepageData = async () => {
-    setLoading(true);
-    try {
-      const [songs, albums, playlists] = await Promise.all([
-        fetch(`${API_BASE}/search/songs?query=Top 50&limit=15`).then(r => r.json()),
-        fetch(`${API_BASE}/search/albums?query=New&limit=15`).then(r => r.json()),
-        fetch(`${API_BASE}/search/playlists?query=Hits&limit=15`).then(r => r.json())
-      ]);
-
-      if(songs.success) setTrendingSongs(songs.data.results);
-      if(albums.success) setNewAlbums(albums.data.results);
-      if(playlists.success) setTopPlaylists(playlists.data.results);
-
-    } catch (e) { console.error("Home load error", e); } 
-    finally { setLoading(false); }
+  
+  // Safe Image Helper (Prevents white screen crashes)
+  const getImg = (imgArray) => {
+    if (!imgArray) return "https://via.placeholder.com/150"; // Fallback
+    if (Array.isArray(imgArray)) {
+        return imgArray[imgArray.length - 1]?.url || imgArray[0]?.url;
+    }
+    return imgArray;
   };
 
   const toggleLike = async (song) => {
@@ -135,17 +156,11 @@ function App() {
     } catch (e) { console.error(e); } finally { setLoading(false); }
   };
 
-  // ==============================
-  // 3. SMART PLAY LOGIC (Fixes the issue)
-  // ==============================
-  
-  // Handles clicking any card (Song, Album, or Playlist)
+  // Smart Play (Handles Albums/Playlists)
   const handleCardClick = async (item, type) => {
     if (type === 'song') {
-      // It's a song, play directly
       playSong([item], 0);
     } else {
-      // It's an Album or Playlist -> Fetch songs inside it first
       setLoading(true);
       try {
         let endpoint = type === 'album' 
@@ -156,16 +171,11 @@ function App() {
         const data = await res.json();
         
         if (data.success && data.data.songs) {
-          // Play the first song of the album/playlist
           playSong(data.data.songs, 0);
         } else {
-          alert("No songs found in this selection.");
+          alert("No songs found.");
         }
-      } catch (e) {
-        console.error("Error fetching container details", e);
-      } finally {
-        setLoading(false);
-      }
+      } catch (e) { console.error(e); } finally { setLoading(false); }
     }
   };
 
@@ -176,15 +186,10 @@ function App() {
     const song = list[idx];
     setCurrentSong(song);
     
-    // SAFETY CHECK: Does downloadUrl exist?
-    if (!song.downloadUrl || song.downloadUrl.length === 0) {
-        alert("Audio not available for this song.");
-        return;
-    }
+    // Determine URL with Safety Check
+    if(!song.downloadUrl) return alert("Audio unavailable");
 
-    // Quality Selection with Fallback
     let match = song.downloadUrl.find(u => u.quality === quality);
-    // If quality match fails, pick the last one (usually highest), otherwise the first one
     let url = match ? match.url : (song.downloadUrl[song.downloadUrl.length - 1]?.url || song.downloadUrl[0]?.url);
     
     if (audioRef.current.src !== url) {
@@ -199,29 +204,7 @@ function App() {
     }
   };
 
-  const handleQualityChange = (newQ) => {
-    setQuality(newQ);
-    if (currentSong && currentSong.downloadUrl) {
-        const t = audioRef.current.currentTime;
-        const p = !audioRef.current.paused;
-        
-        let match = currentSong.downloadUrl.find(u => u.quality === newQ);
-        let url = match ? match.url : currentSong.downloadUrl[currentSong.downloadUrl.length - 1].url;
-        
-        if (audioRef.current.src !== url) {
-            audioRef.current.src = url;
-            audioRef.current.currentTime = t;
-            if (p) audioRef.current.play();
-        }
-    }
-  };
-
-  const handleVolumeChange = (e) => {
-    const vol = parseFloat(e.target.value);
-    setVolume(vol);
-    audioRef.current.volume = vol;
-  };
-
+  // Player Events
   const togglePlay = () => {
     if (audioRef.current.paused) { audioRef.current.play(); setIsPlaying(true); }
     else { audioRef.current.pause(); setIsPlaying(false); }
@@ -236,16 +219,19 @@ function App() {
     return () => { a.removeEventListener('timeupdate', time); a.removeEventListener('ended', end); };
   }, [queue, qIndex]);
 
-  const getImg = (i) => Array.isArray(i) ? i[i.length-1].url : i;
-  const isLiked = (id) => user && likedSongs.some(s => s.id === id);
-
   // ==============================
-  // 4. VIEW
+  // 4. RENDER
   // ==============================
 
+  // 1. Initial Loading State (Prevents Black Screen on Load)
+  if (view === 'loading') {
+    return <div className="auth-wrapper"><div className="loader"></div></div>;
+  }
+
+  // 2. Auth Screen
   if (view === 'auth') {
     return (
-      <div className="auth-container">
+      <div className="auth-wrapper">
         <div className="auth-box">
           <h1 className="logo" style={{fontSize:'3rem', marginBottom:'20px'}}>Musiq.</h1>
           <input placeholder="Email" type="email" value={authInput.email} onChange={e=>setAuthInput({...authInput,email:e.target.value})} className="auth-input"/>
@@ -259,6 +245,7 @@ function App() {
     );
   }
 
+  // 3. Main App
   return (
     <div className="app-layout">
       {/* Sidebar */}
@@ -272,7 +259,7 @@ function App() {
         </div>
       </div>
 
-      {/* Main Content */}
+      {/* Content */}
       <div className="main-content">
         <div className="header">
           <div className="search-bar">
@@ -291,9 +278,9 @@ function App() {
         </div>
 
         <div className="scroll-area">
-          {loading && <div style={{textAlign:'center', padding:'20px', color:'#555'}}>Loading...</div>}
+          {loading && <div className="loader"></div>}
 
-          {/* SEARCH RESULTS VIEW */}
+          {/* SEARCH RESULTS */}
           {tab === 'search_results' && (
              <>
                 <h2>Search Results</h2>
@@ -303,36 +290,35 @@ function App() {
                         <img src={getImg(item.image)} alt=""/>
                         <h3>{item.name}</h3>
                         <p>{item.primaryArtists}</p>
-                        <div className={`card-heart ${isLiked(item.id)?'liked':''}`} onClick={(e)=>{e.stopPropagation(); toggleLike(item)}}>♥</div>
+                        <div className={`card-heart ${user && likedSongs.some(s=>s.id===item.id)?'liked':''}`} onClick={(e)=>{e.stopPropagation(); toggleLike(item)}}>♥</div>
                       </div>
                     ))}
                 </div>
-                {searchResults.length === 0 && !loading && <p>No results found.</p>}
+                {searchResults.length === 0 && !loading && <p style={{color:'#666'}}>No results found.</p>}
              </>
           )}
 
-          {/* HOMEPAGE VIEW */}
+          {/* HOMEPAGE */}
           {tab === 'home' && (
             <>
-              {/* Section 1: Trending Songs */}
+              {/* Section 1: Trending */}
               <div className="section">
                 <div className="section-header">
                     <div className="section-title">Trending Now</div>
                     <div className="section-subtitle">Top hits of the week</div>
                 </div>
                 <div className="horizontal-scroll">
-                    {trendingSongs.map((item) => (
+                    {trendingSongs.length > 0 ? trendingSongs.map((item, idx) => (
                       <div key={item.id} className="card" onClick={()=>handleCardClick(item, 'song')}>
                         <img src={getImg(item.image)} alt=""/>
                         <h3>{item.name || item.title}</h3>
                         <p>{item.primaryArtists}</p>
-                        <div className={`card-heart ${isLiked(item.id)?'liked':''}`} onClick={(e)=>{e.stopPropagation(); toggleLike(item)}}>♥</div>
                       </div>
-                    ))}
+                    )) : <p style={{color:'#666', padding:'20px'}}>Loading...</p>}
                 </div>
               </div>
 
-              {/* Section 2: New Albums */}
+              {/* Section 2: Albums */}
               <div className="section">
                 <div className="section-header">
                     <div className="section-title">New Releases</div>
@@ -368,14 +354,14 @@ function App() {
             </>
           )}
 
-          {/* LIBRARY VIEW */}
+          {/* LIBRARY */}
           {tab === 'library' && (
             <>
               <h2>Liked Songs</h2>
-              {user.likedSongs.length === 0 ? <p style={{color:'#666'}}>No songs liked yet.</p> : (
+              {likedSongs.length === 0 ? <p style={{color:'#666'}}>No songs liked yet.</p> : (
                  <div className="grid">
-                    {user.likedSongs.map((item, idx) => (
-                      <div key={item.id} className="card" onClick={()=>playSong(user.likedSongs, idx)}>
+                    {likedSongs.map((item, idx) => (
+                      <div key={item.id} className="card" onClick={()=>playSong(likedSongs, idx)}>
                         <img src={getImg(item.image)} alt=""/>
                         <h3>{item.name}</h3>
                         <p>{item.primaryArtists}</p>
@@ -388,7 +374,7 @@ function App() {
           )}
         </div>
 
-        {/* 3. Player Bar */}
+        {/* Player Bar */}
         <div className={`player-bar ${currentSong ? 'visible' : ''}`}>
           {currentSong && (
             <>
@@ -419,10 +405,13 @@ function App() {
                  <span style={{fontSize:'0.8rem', color:'#aaa'}}>🔊</span>
                  <input 
                     type="range" min="0" max="1" step="0.05" 
-                    value={volume} onChange={handleVolumeChange}
+                    value={volume} onChange={(e)=>{
+                        setVolume(e.target.value); 
+                        audioRef.current.volume = e.target.value;
+                    }}
                     className="volume-slider"
                  />
-                 <select className="quality-select" value={quality} onChange={(e)=>handleQualityChange(e.target.value)}>
+                 <select className="quality-select" value={quality} onChange={(e)=>{setQuality(e.target.value)}}>
                     <option value="320kbps">320kbps</option>
                     <option value="160kbps">160kbps</option>
                  </select>
