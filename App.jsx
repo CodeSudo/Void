@@ -1,24 +1,36 @@
-import React, { useState, useRef, useEffect } from "react";
-import "./App.css";
+import React, { useState, useRef, useEffect } from 'react';
+import './App.css';
+// Import Firebase
+import { auth, db } from './firebase'; 
+import { 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  signOut, 
+  onAuthStateChanged 
+} from 'firebase/auth';
+import { 
+  doc, setDoc, getDoc, updateDoc, arrayUnion, arrayRemove 
+} from 'firebase/firestore';
 
 const API_BASE = "https://saavn.sumit.co/api";
 
 function App() {
-  // Navigation & View State
-  const [view, setView] = useState("auth");
-  const [tab, setTab] = useState("home");
+  // --- UI State ---
+  const [view, setView] = useState('auth'); 
+  const [tab, setTab] = useState('home');   
   const [loading, setLoading] = useState(false);
 
-  // User & Auth State
+  // --- User State (Firebase) ---
   const [user, setUser] = useState(null);
-  const [authMode, setAuthMode] = useState("login");
-  const [authInput, setAuthInput] = useState({ username: "", password: "" });
+  const [likedSongs, setLikedSongs] = useState([]); // Stores songs from Firestore
+  const [authMode, setAuthMode] = useState('login');
+  const [authInput, setAuthInput] = useState({ email: '', password: '' });
 
-  // Music Data
-  const [searchQuery, setSearchQuery] = useState("");
+  // --- Music Data ---
+  const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
-
-  // Player State
+  
+  // --- Player State ---
   const audioRef = useRef(new Audio());
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentSong, setCurrentSong] = useState(null);
@@ -26,100 +38,114 @@ function App() {
   const [qIndex, setQIndex] = useState(-1);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [quality, setQuality] = useState("320kbps"); // Default Quality
+  const [quality, setQuality] = useState('320kbps');
 
   // ==============================
-  // 1. AUTH (Local Storage)
+  // 1. FIREBASE AUTH LISTENER
   // ==============================
   useEffect(() => {
-    const stored = localStorage.getItem("musiq_user");
-    if (stored) {
-      setUser(JSON.parse(stored));
-      setView("app");
-    }
+    // This listens for login/logout automatically
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (currentUser) {
+        setUser(currentUser);
+        setView('app');
+        
+        // Load Liked Songs from Cloud
+        try {
+            const docRef = doc(db, "users", currentUser.uid);
+            const docSnap = await getDoc(docRef);
+            if (docSnap.exists()) {
+                setLikedSongs(docSnap.data().likedSongs || []);
+            } else {
+                // First time setup
+                await setDoc(docRef, { email: currentUser.email, likedSongs: [] });
+            }
+        } catch (err) {
+            console.error("Error loading data:", err);
+        }
+      } else {
+        // Logged out
+        setUser(null);
+        setLikedSongs([]);
+        setView('auth');
+        setSearchResults([]);
+        setSearchQuery('');
+      }
+    });
+    return () => unsubscribe();
   }, []);
 
-  const handleAuth = () => {
-    if (!authInput.username || !authInput.password)
-      return alert("Fill all fields");
-    const dbUsers = JSON.parse(localStorage.getItem("musiq_users") || "[]");
-
-    if (authMode === "signup") {
-      if (dbUsers.find((u) => u.username === authInput.username))
-        return alert("Username taken");
-      const newUser = { ...authInput, likedSongs: [] };
-      dbUsers.push(newUser);
-      localStorage.setItem("musiq_users", JSON.stringify(dbUsers));
-      login(newUser);
-    } else {
-      const found = dbUsers.find(
-        (u) =>
-          u.username === authInput.username &&
-          u.password === authInput.password,
-      );
-      if (found) login(found);
-      else alert("Invalid credentials");
+  // ==============================
+  // 2. AUTH ACTIONS
+  // ==============================
+  const handleAuth = async () => {
+    if (!authInput.email || !authInput.password) return alert("Please fill all fields");
+    
+    try {
+      if (authMode === 'signup') {
+        // Sign Up Logic
+        const cred = await createUserWithEmailAndPassword(auth, authInput.email, authInput.password);
+        // Create DB Entry
+        await setDoc(doc(db, "users", cred.user.uid), { 
+            email: authInput.email, 
+            likedSongs: [] 
+        });
+      } else {
+        // Login Logic
+        await signInWithEmailAndPassword(auth, authInput.email, authInput.password);
+      }
+    } catch (error) {
+      // SHOW ERROR TO USER
+      console.error(error);
+      alert("Auth Error: " + error.message);
     }
   };
 
-  const login = (u) => {
-    setUser(u);
-    localStorage.setItem("musiq_user", JSON.stringify(u));
-    setView("app");
-    setAuthInput({ username: "", password: "" });
-  };
-
-  const logout = () => {
-    setUser(null);
-    localStorage.removeItem("musiq_user");
-    setView("auth");
+  const logout = async () => {
+    await signOut(auth);
     setCurrentSong(null);
     setIsPlaying(false);
     audioRef.current.pause();
   };
 
   // ==============================
-  // 2. LOGIC
+  // 3. DATA LOGIC (Firestore)
   // ==============================
-  const toggleLike = (song) => {
+  const toggleLike = async (song) => {
     if (!user) return;
-    const isLiked = user.likedSongs.some((s) => s.id === song.id);
-    let newLikes = isLiked
-      ? user.likedSongs.filter((s) => s.id !== song.id)
-      : [...user.likedSongs, song];
+    
+    // 1. Optimistic Update (Instant UI)
+    const isAlreadyLiked = likedSongs.some(s => s.id === song.id);
+    let newLikes = [];
+    if (isAlreadyLiked) {
+      newLikes = likedSongs.filter(s => s.id !== song.id);
+    } else {
+      newLikes = [...likedSongs, song];
+    }
+    setLikedSongs(newLikes);
 
-    const updatedUser = { ...user, likedSongs: newLikes };
-    setUser(updatedUser);
-    localStorage.setItem("musiq_user", JSON.stringify(updatedUser));
-
-    // Sync DB
-    const dbUsers = JSON.parse(localStorage.getItem("musiq_users") || "[]");
-    const idx = dbUsers.findIndex((u) => u.username === user.username);
-    if (idx !== -1) {
-      dbUsers[idx] = updatedUser;
-      localStorage.setItem("musiq_users", JSON.stringify(dbUsers));
+    // 2. Cloud Update
+    const userRef = doc(db, "users", user.uid);
+    try {
+        if (isAlreadyLiked) await updateDoc(userRef, { likedSongs: arrayRemove(song) });
+        else await updateDoc(userRef, { likedSongs: arrayUnion(song) });
+    } catch (e) {
+        console.error("Like sync failed", e);
     }
   };
 
   const doSearch = async () => {
     if (!searchQuery) return;
-    setLoading(true);
-    setTab("home");
+    setLoading(true); setTab('home');
     try {
-      const res = await fetch(
-        `${API_BASE}/search/songs?query=${encodeURIComponent(searchQuery)}`,
-      );
+      const res = await fetch(`${API_BASE}/search/songs?query=${encodeURIComponent(searchQuery)}`);
       const data = await res.json();
       if (data.success) setSearchResults(data.data.results);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) { console.error(e); } finally { setLoading(false); }
   };
 
   // ==============================
-  // 3. PLAYER
+  // 4. PLAYER LOGIC
   // ==============================
   const playSong = (list, idx) => {
     if (idx < 0 || idx >= list.length) return;
@@ -127,112 +153,67 @@ function App() {
     setQIndex(idx);
     const song = list[idx];
     setCurrentSong(song);
-
-    // Find URL based on selected quality
-    let match = song.downloadUrl.find((u) => u.quality === quality);
-    let url = match
-      ? match.url
-      : song.downloadUrl[song.downloadUrl.length - 1].url;
-
+    
+    // Quality selection
+    let match = song.downloadUrl.find(u => u.quality === quality);
+    let url = match ? match.url : song.downloadUrl[song.downloadUrl.length - 1].url;
+    
     if (audioRef.current.src !== url) {
       audioRef.current.src = url;
-      audioRef.current.play().then(() => setIsPlaying(true));
+      audioRef.current.play().then(()=>setIsPlaying(true));
     } else {
-      audioRef.current.play();
-      setIsPlaying(true);
+      audioRef.current.play(); setIsPlaying(true);
     }
   };
 
-  // Handle Quality Change
   const handleQualityChange = (newQuality) => {
     setQuality(newQuality);
     if (currentSong) {
-      const curTime = audioRef.current.currentTime;
-      const isPlayingNow = !audioRef.current.paused;
-
-      // Find new URL
-      let match = currentSong.downloadUrl.find((u) => u.quality === newQuality);
-      let url = match
-        ? match.url
-        : currentSong.downloadUrl[currentSong.downloadUrl.length - 1].url;
-
-      if (audioRef.current.src !== url) {
-        audioRef.current.src = url;
-        audioRef.current.currentTime = curTime;
-        if (isPlayingNow) audioRef.current.play();
-      }
+        const t = audioRef.current.currentTime;
+        const p = !audioRef.current.paused;
+        
+        let match = currentSong.downloadUrl.find(u => u.quality === newQuality);
+        let url = match ? match.url : currentSong.downloadUrl[currentSong.downloadUrl.length - 1].url;
+        
+        if (audioRef.current.src !== url) {
+            audioRef.current.src = url;
+            audioRef.current.currentTime = t;
+            if (p) audioRef.current.play();
+        }
     }
   };
 
   const togglePlay = () => {
-    if (audioRef.current.paused) {
-      audioRef.current.play();
-      setIsPlaying(true);
-    } else {
-      audioRef.current.pause();
-      setIsPlaying(false);
-    }
+    if (audioRef.current.paused) { audioRef.current.play(); setIsPlaying(true); }
+    else { audioRef.current.pause(); setIsPlaying(false); }
   };
 
   useEffect(() => {
     const a = audioRef.current;
-    const time = () => {
-      setProgress(a.currentTime);
-      setDuration(a.duration || 0);
-    };
-    const end = () => playSong(queue, qIndex + 1);
-    a.addEventListener("timeupdate", time);
-    a.addEventListener("ended", end);
-    return () => {
-      a.removeEventListener("timeupdate", time);
-      a.removeEventListener("ended", end);
-    };
+    const time = () => { setProgress(a.currentTime); setDuration(a.duration||0); };
+    const end = () => playSong(queue, qIndex+1);
+    a.addEventListener('timeupdate', time);
+    a.addEventListener('ended', end);
+    return () => { a.removeEventListener('timeupdate', time); a.removeEventListener('ended', end); };
   }, [queue, qIndex]);
 
-  const getImg = (i) => (Array.isArray(i) ? i[i.length - 1].url : i);
-  const isLiked = (id) => user?.likedSongs.some((s) => s.id === id);
+  const getImg = (i) => Array.isArray(i) ? i[i.length-1].url : i;
+  const isLiked = (id) => user && likedSongs.some(s => s.id === id);
 
   // ==============================
-  // 4. VIEW
+  // 5. VIEW
   // ==============================
 
-  if (view === "auth") {
+  if (view === 'auth') {
     return (
       <div className="auth-container">
         <div className="auth-box">
-          <h1
-            className="logo"
-            style={{ fontSize: "3rem", marginBottom: "20px" }}
-          >
-            Musiq.
-          </h1>
-          <input
-            placeholder="Username"
-            value={authInput.username}
-            onChange={(e) =>
-              setAuthInput({ ...authInput, username: e.target.value })
-            }
-            className="auth-input"
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            value={authInput.password}
-            onChange={(e) =>
-              setAuthInput({ ...authInput, password: e.target.value })
-            }
-            className="auth-input"
-          />
-          <button className="auth-btn" onClick={handleAuth}>
-            {authMode === "login" ? "Sign In" : "Sign Up"}
-          </button>
-          <p
-            style={{ color: "#666", marginTop: "15px", cursor: "pointer" }}
-            onClick={() =>
-              setAuthMode(authMode === "login" ? "signup" : "login")
-            }
-          >
-            {authMode === "login" ? "Create Account" : "Have Account?"}
+          <h1 className="logo" style={{fontSize:'3rem', marginBottom:'20px'}}>Musiq.</h1>
+          <input placeholder="Email" type="email" value={authInput.email} onChange={e=>setAuthInput({...authInput,email:e.target.value})} className="auth-input"/>
+          <input type="password" placeholder="Password" value={authInput.password} onChange={e=>setAuthInput({...authInput,password:e.target.value})} className="auth-input"/>
+          <button className="auth-btn" onClick={handleAuth}>{authMode==='login'?'Sign In':'Sign Up'}</button>
+          <p style={{color:'#666', marginTop:'15px', cursor:'pointer'}} onClick={()=>setAuthMode(authMode==='login'?'signup':'login')}>
+            {authMode==='login'?'Create Account':'Have Account?'}
           </p>
         </div>
       </div>
@@ -241,59 +222,41 @@ function App() {
 
   return (
     <div className="app-layout">
-      {/* 1. Sidebar */}
+      {/* Sidebar */}
       <div className="sidebar">
         <div className="logo">Musiq.</div>
-        <div
-          className={`nav-item ${tab === "home" ? "active" : ""}`}
-          onClick={() => setTab("home")}
-        >
+        <div className={`nav-item ${tab==='home'?'active':''}`} onClick={()=>setTab('home')}>
           <span>🏠</span> Home
         </div>
-        <div
-          className={`nav-item ${tab === "library" ? "active" : ""}`}
-          onClick={() => setTab("library")}
-        >
+        <div className={`nav-item ${tab==='library'?'active':''}`} onClick={()=>setTab('library')}>
           <span>❤️</span> Liked Songs
         </div>
       </div>
 
-      {/* 2. Main Content */}
+      {/* Main Content */}
       <div className="main-content">
         <div className="header">
           <div className="search-bar">
             <span>🔍</span>
-            <input
-              placeholder="Search songs, artists..."
+            <input 
+              placeholder="Search songs, artists..." 
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && doSearch()}
+              onChange={e=>setSearchQuery(e.target.value)}
+              onKeyDown={e=>e.key==='Enter'&&doSearch()}
             />
           </div>
           <div className="user-pill" onClick={logout}>
-            <div className="avatar">{user.username[0].toUpperCase()}</div>
-            <span
-              style={{ fontSize: "0.9rem", color: "#aaa", marginLeft: "10px" }}
-            >
-              Logout
-            </span>
+            <div className="avatar">{user.email ? user.email[0].toUpperCase() : 'U'}</div>
+            <span style={{fontSize:'0.9rem', color:'#aaa', marginLeft:'10px'}}>Logout</span>
           </div>
         </div>
 
         <div className="scroll-area">
-          {tab === "home" && (
+          {tab === 'home' && (
             <>
               {!loading && searchResults.length === 0 ? (
-                <div
-                  style={{
-                    textAlign: "center",
-                    marginTop: "10vh",
-                    color: "#555",
-                  }}
-                >
-                  <h1 style={{ fontSize: "3rem", marginBottom: "10px" }}>
-                    Welcome Back
-                  </h1>
+                <div style={{textAlign:'center', marginTop:'10vh', color:'#555'}}>
+                  <h1 style={{fontSize:'3rem', marginBottom:'10px'}}>Welcome Back</h1>
                   <p>Start searching to play music.</p>
                 </div>
               ) : (
@@ -301,23 +264,11 @@ function App() {
                   <h2>Results</h2>
                   <div className="grid">
                     {searchResults.map((item) => (
-                      <div
-                        key={item.id}
-                        className="card"
-                        onClick={() => playSong([item], 0)}
-                      >
-                        <img src={getImg(item.image)} alt="" />
+                      <div key={item.id} className="card" onClick={()=>playSong([item], 0)}>
+                        <img src={getImg(item.image)} alt=""/>
                         <h3>{item.name}</h3>
                         <p>{item.primaryArtists}</p>
-                        <div
-                          className={`card-heart ${isLiked(item.id) ? "liked" : ""}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleLike(item);
-                          }}
-                        >
-                          ♥
-                        </div>
+                        <div className={`card-heart ${isLiked(item.id)?'liked':''}`} onClick={(e)=>{e.stopPropagation(); toggleLike(item)}}>♥</div>
                       </div>
                     ))}
                   </div>
@@ -326,107 +277,60 @@ function App() {
             </>
           )}
 
-          {tab === "library" && (
+          {tab === 'library' && (
             <>
               <h2>Liked Songs</h2>
-              {user.likedSongs.length === 0 ? (
-                <p style={{ color: "#666" }}>No songs liked yet.</p>
-              ) : (
-                <div className="grid">
-                  {user.likedSongs.map((item, idx) => (
-                    <div
-                      key={item.id}
-                      className="card"
-                      onClick={() => playSong(user.likedSongs, idx)}
-                    >
-                      <img src={getImg(item.image)} alt="" />
-                      <h3>{item.name}</h3>
-                      <p>{item.primaryArtists}</p>
-                      <div
-                        className="card-heart liked"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleLike(item);
-                        }}
-                      >
-                        ♥
+              {likedSongs.length === 0 ? <p style={{color:'#666'}}>No songs liked yet.</p> : (
+                 <div className="grid">
+                    {likedSongs.map((item, idx) => (
+                      <div key={item.id} className="card" onClick={()=>playSong(likedSongs, idx)}>
+                        <img src={getImg(item.image)} alt=""/>
+                        <h3>{item.name}</h3>
+                        <p>{item.primaryArtists}</p>
+                        <div className="card-heart liked" onClick={(e)=>{e.stopPropagation(); toggleLike(item)}}>♥</div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                 </div>
               )}
             </>
           )}
         </div>
 
-        {/* 3. Player Bar */}
-        <div className={`player-bar ${currentSong ? "visible" : ""}`}>
+        {/* Player Bar */}
+        <div className={`player-bar ${currentSong ? 'visible' : ''}`}>
           {currentSong && (
             <>
-              {/* Left: Song Info */}
               <div className="p-left">
-                <img src={getImg(currentSong.image)} alt="" />
+                <img src={getImg(currentSong.image)} alt=""/>
                 <div>
-                  <h4 style={{ color: "white", fontSize: "0.95rem" }}>
-                    {currentSong.name}
-                  </h4>
-                  <p style={{ color: "#888", fontSize: "0.8rem" }}>
-                    {currentSong.primaryArtists}
-                  </p>
+                   <h4 style={{color:'white', fontSize:'0.95rem'}}>{currentSong.name}</h4>
+                   <p style={{color:'#888', fontSize:'0.8rem'}}>{currentSong.primaryArtists}</p>
                 </div>
               </div>
-
-              {/* Center: Controls */}
+              
               <div className="p-center">
-                <div className="p-controls">
-                  <span
-                    style={{ color: "#aaa", cursor: "pointer" }}
-                    onClick={() => playSong(queue, qIndex - 1)}
-                  >
-                    ⏮
-                  </span>
-                  <div className="btn-play" onClick={togglePlay}>
-                    {isPlaying ? "||" : "▶"}
-                  </div>
-                  <span
-                    style={{ color: "#aaa", cursor: "pointer" }}
-                    onClick={() => playSong(queue, qIndex + 1)}
-                  >
-                    ⏭
-                  </span>
-                </div>
-                <div
-                  className="progress-rail"
-                  onClick={(e) => {
+                 <div className="p-controls">
+                    <span style={{color:'#aaa', cursor:'pointer'}} onClick={()=>playSong(queue, qIndex-1)}>⏮</span>
+                    <div className="btn-play" onClick={togglePlay}>{isPlaying ? "||" : "▶"}</div>
+                    <span style={{color:'#aaa', cursor:'pointer'}} onClick={()=>playSong(queue, qIndex+1)}>⏭</span>
+                 </div>
+                 <div className="progress-rail" onClick={(e)=>{
                     const w = e.currentTarget.clientWidth;
                     const x = e.nativeEvent.offsetX;
-                    audioRef.current.currentTime = (x / w) * duration;
-                  }}
-                >
-                  <div
-                    className="progress-fill"
-                    style={{ width: `${(progress / duration) * 100}%` }}
-                  ></div>
-                </div>
+                    audioRef.current.currentTime = (x/w)*duration;
+                 }}>
+                    <div className="progress-fill" style={{width: `${(progress/duration)*100}%`}}></div>
+                 </div>
               </div>
 
-              {/* Right: Quality & Time */}
               <div className="p-right">
-                <select
-                  className="quality-select"
-                  value={quality}
-                  onChange={(e) => handleQualityChange(e.target.value)}
-                >
-                  <option value="320kbps">320kbps</option>
-                  <option value="160kbps">160kbps</option>
-                  <option value="96kbps">96kbps</option>
-                </select>
-                <span className="time-text">
-                  {Math.floor(progress / 60)}:
-                  {Math.floor(progress % 60)
-                    .toString()
-                    .padStart(2, "0")}
-                </span>
+                 <select className="quality-select" value={quality} onChange={(e) => handleQualityChange(e.target.value)}>
+                    <option value="320kbps">320kbps</option>
+                    <option value="160kbps">160kbps</option>
+                 </select>
+                 <span className="time-text">
+                    {Math.floor(progress/60)}:{Math.floor(progress%60).toString().padStart(2,'0')}
+                 </span>
               </div>
             </>
           )}
