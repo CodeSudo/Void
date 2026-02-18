@@ -12,6 +12,7 @@ const Icons = {
   SkipFwd: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>,
   SkipBack: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg>,
   Plus: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>,
+  List: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>,
   Mic: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>,
   Heart: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>,
   Trash: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>,
@@ -19,8 +20,7 @@ const Icons = {
   Repeat: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>,
   RepeatOne: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/><text x="10" y="15" fontSize="8" fill="currentColor" style={{fontWeight:'bold'}}>1</text></svg>,
   Radio: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"/></svg>,
-  List: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>,
-  Back: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+  Back: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
 };
 
 // FIREBASE
@@ -55,6 +55,7 @@ function App() {
   const [resAlbums, setResAlbums] = useState([]);
   const [resArtists, setResArtists] = useState([]);
   const [resPlaylists, setResPlaylists] = useState([]);
+  
   const [moodPlaylists, setMoodPlaylists] = useState([]);
 
   const [homeData, setHomeData] = useState({ 
@@ -102,15 +103,23 @@ function App() {
     return `${min}:${sec < 10 ? '0'+sec : sec}`;
   };
 
-  // --- HISTORY LOGIC ---
-  const addToHistory = (song) => {
-    const prev = JSON.parse(localStorage.getItem('musiq_history') || '[]');
-    const newHist = [song, ...prev.filter(s => String(s.id) !== String(song.id))].slice(0, 15);
-    localStorage.setItem('musiq_history', JSON.stringify(newHist));
+  // --- HISTORY LOGIC (SYNCED WITH FIREBASE) ---
+  const addToHistory = async (song) => {
+    // 1. Optimistic Update (Local State)
+    const newHist = [song, ...history.filter(s => String(s.id) !== String(song.id))].slice(0, 15);
     setHistory(newHist);
-  };
 
-  useEffect(() => { setHistory(JSON.parse(localStorage.getItem('musiq_history') || '[]')); }, []);
+    // 2. Persist based on Auth State
+    if (user) {
+        try {
+            const userRef = doc(db, "users", user.uid);
+            // We overwrite the 'history' field in the DB with the new array
+            await updateDoc(userRef, { history: newHist });
+        } catch (e) { console.error("Error saving history", e); }
+    } else {
+        localStorage.setItem('musiq_history', JSON.stringify(newHist));
+    }
+  };
 
   // --- DATA FETCHING ---
   const fetchHome = async () => {
@@ -302,13 +311,24 @@ function App() {
         if(u) {
             setUser(u); setView('app'); fetchHome();
             try {
+                // FETCH USER DATA & HISTORY
                 const userSnap = await getDoc(doc(db, "users", u.uid));
-                if(userSnap.exists()) setLikedSongs(userSnap.data().likedSongs || []);
-                else await setDoc(doc(db, "users", u.uid), { email: u.email, likedSongs: [] });
+                if(userSnap.exists()) {
+                    const data = userSnap.data();
+                    setLikedSongs(data.likedSongs || []);
+                    setHistory(data.history || []); // <--- LOAD HISTORY FROM DB
+                }
+                else await setDoc(doc(db, "users", u.uid), { email: u.email, likedSongs: [], history: [] });
+                
                 const q = query(collection(db, `users/${u.uid}/playlists`));
                 onSnapshot(q, (snapshot) => setUserPlaylists(snapshot.docs.map(d => ({id: d.id, ...d.data()}))));
             } catch {}
-        } else { setUser(null); setView('auth'); }
+        } else { 
+            setUser(null); 
+            setView('auth'); 
+            // Fallback load history from local storage for login screen / fast access
+            setHistory(JSON.parse(localStorage.getItem('musiq_history') || '[]'));
+        }
     });
     return () => unsub();
   }, []);
@@ -318,7 +338,7 @@ function App() {
     try {
         if(authMode==='signup') {
             const c = await createUserWithEmailAndPassword(auth, authInput.email, authInput.password);
-            await setDoc(doc(db, "users", c.user.uid), { email: authInput.email, likedSongs: [] });
+            await setDoc(doc(db, "users", c.user.uid), { email: authInput.email, likedSongs: [], history: [] });
         } else { await signInWithEmailAndPassword(auth, authInput.email, authInput.password); }
         toast.success("Welcome!", { id: toastId });
     } catch(e) { toast.error(e.message, { id: toastId }); }
@@ -601,10 +621,8 @@ function App() {
                 {tab === 'home' && (
                     <>
                         <div className="hero">
-                            <div className="hero-content">
-                                <h1 style={{fontSize:'3rem', fontWeight:800, marginBottom:10}}>Welcome Back</h1>
-                                <p style={{color:'#ccc'}}>Discover new music, fresh albums, and curated playlists.</p>
-                            </div>
+                            <h1>Welcome Back</h1>
+                            <p>Discover new music, fresh albums, and curated playlists.</p>
                         </div>
 
                         {/* 1. History */}
@@ -791,9 +809,6 @@ function App() {
         <div className={`player-bar ${currentSong ? 'visible' : ''}`} style={{transform: currentSong ? 'translateY(0)' : 'translateY(100%)', transition:'transform 0.3s'}}>
             {currentSong && (
                 <>
-                    {/* Mobile Progress Bar (Visual only, top of player) */}
-                    <div className="player-bar-progress-mobile" style={{width: `${(progress/duration)*100}%`}}></div>
-
                     <div className="p-track">
                         <img src={getImg(currentSong.image)} alt=""/>
                         <div style={{overflow: 'hidden'}}>
@@ -830,11 +845,6 @@ function App() {
                             <option value="160kbps">160kbps</option>
                             <option value="96kbps">96kbps</option>
                         </select>
-                    </div>
-
-                    {/* Mobile Controls (Only visible on small screens via CSS) */}
-                    <div className="mobile-controls" style={{display:'none'}}> 
-                       <button className="btn-play-mobile" onClick={togglePlay}>{isPlaying ? <Icons.Pause/> : <Icons.Play/>}</button>
                     </div>
                 </>
             )}
