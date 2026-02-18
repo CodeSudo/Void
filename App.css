@@ -4,7 +4,6 @@
   /* --- Palette --- */
   --bg-main: #090909;       /* Deepest Black */
   --bg-panel: #121212;      /* Panel Background */
-  --bg-card: #181818;       /* Card Background */
   --bg-hover: #222222;
   
   --primary: #f24e1e;       /* Winamp Orange */
@@ -15,14 +14,15 @@
   /* --- Dimensions --- */
   --sidebar-width: 230px;
   --right-panel-width: 300px;
-  --player-height: 80px;
+  --player-height: 90px;
+  --mobile-nav-height: 70px;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
 body { background-color: var(--bg-main); color: var(--text-main); height: 100vh; width: 100vw; overflow: hidden; }
 
 /* ============================
-   LAYOUT GRID
+   LAYOUT GRID (Desktop)
    ============================ */
 .app-layout { 
   display: grid; 
@@ -51,7 +51,7 @@ body { background-color: var(--bg-main); color: var(--text-main); height: 100vh;
   font-size: 1.5rem; font-weight: 800; color: white; 
   margin-bottom: 40px; 
 }
-.brand span { color: var(--primary); font-size: 2rem; } /* The Bolt */
+.brand span { color: var(--primary); font-size: 2rem; }
 
 .nav-section { margin-bottom: 30px; }
 .nav-title { font-size: 0.75rem; font-weight: 700; color: var(--text-sec); margin-bottom: 15px; text-transform: uppercase; letter-spacing: 1px; }
@@ -64,8 +64,6 @@ body { background-color: var(--bg-main); color: var(--text-main); height: 100vh;
 }
 .nav-item:hover { color: white; }
 .nav-item.active { color: var(--primary); font-weight: 700; }
-
-/* Active Orange Bar */
 .nav-item.active::before {
   content: ''; position: absolute; left: -20px; top: 5px; bottom: 5px; width: 4px; 
   background: var(--primary); border-radius: 0 4px 4px 0;
@@ -79,12 +77,11 @@ body { background-color: var(--bg-main); color: var(--text-main); height: 100vh;
   background: var(--bg-main);
   padding: 20px 40px;
   overflow-y: auto;
-  /* Scrollbar Hide */
   scrollbar-width: none; 
 }
 .main-content::-webkit-scrollbar { display: none; }
 
-/* Search Bar */
+/* Header & Search */
 .header { display: flex; align-items: center; margin-bottom: 30px; }
 .search-box {
   background: var(--bg-panel); border-radius: 50px; padding: 12px 20px; width: 100%; max-width: 400px;
@@ -117,15 +114,16 @@ body { background-color: var(--bg-main); color: var(--text-main); height: 100vh;
 .nav-arrows { display: flex; gap: 10px; }
 .nav-arrow { width: 30px; height: 30px; background: var(--bg-panel); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: var(--text-sec); cursor: pointer; }
 
-/* Album Grid */
-.horizontal-scroll { display: flex; gap: 20px; overflow-x: auto; padding-bottom: 10px; }
+/* Horizontal Scroll */
+.horizontal-scroll { display: flex; gap: 20px; overflow-x: auto; padding-bottom: 10px; scroll-behavior: smooth; }
+.horizontal-scroll::-webkit-scrollbar { display: none; }
 .album-card { min-width: 160px; width: 160px; cursor: pointer; }
 .album-card img { width: 100%; aspect-ratio: 1; border-radius: 12px; margin-bottom: 12px; object-fit: cover; }
 .album-card h4 { font-size: 0.95rem; font-weight: 700; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .album-card p { font-size: 0.8rem; color: var(--text-sec); }
 
-/* Track List (Main) */
-.track-list-main { display: flex; flex-direction: column; gap: 10px; }
+/* Track List */
+.track-list-main { display: flex; flex-direction: column; gap: 10px; padding-bottom: 20px; }
 .track-row-main { 
   display: flex; align-items: center; padding: 10px; border-radius: 8px; 
   background: var(--bg-panel); cursor: pointer; transition: 0.2s;
@@ -145,7 +143,7 @@ body { background-color: var(--bg-main); color: var(--text-main); height: 100vh;
   background: var(--bg-main);
   padding: 30px 20px;
   border-left: 1px solid var(--border);
-  display: flex; flex-direction: column;
+  display: flex; flex-direction: column; overflow-y: auto;
 }
 
 .user-profile { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-bottom: 40px; color: white; font-weight: 600; font-size: 0.9rem; }
@@ -156,19 +154,16 @@ body { background-color: var(--bg-main); color: var(--text-main); height: 100vh;
 .queue-header h3 { font-size: 1.1rem; font-weight: 700; }
 .queue-header span { font-size: 0.75rem; color: var(--text-sec); }
 
-.queue-list { display: flex; flex-direction: column; gap: 0; }
 .q-item { 
   display: flex; align-items: center; padding: 12px 0; 
   border-bottom: 1px solid #1a1a1a; cursor: pointer; 
   color: var(--text-sec); font-size: 0.85rem; font-weight: 500;
 }
 .q-item:hover { color: white; }
-.q-item.active { color: var(--primary); } /* Orange text for active song */
+.q-item.active { color: var(--primary); }
 .q-num { width: 25px; }
 .q-title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .q-dur { margin-left: 10px; }
-.q-icon { margin-left: 10px; opacity: 0; transition: 0.2s; }
-.q-item:hover .q-icon, .q-item.active .q-icon { opacity: 1; }
 
 .now-playing-art { 
   width: 100%; aspect-ratio: 16/9; background: #222; border-radius: 12px; 
@@ -205,29 +200,73 @@ body { background-color: var(--bg-main); color: var(--text-main); height: 100vh;
 
 .pb-progress { width: 100%; max-width: 500px; height: 4px; background: #333; border-radius: 2px; position: relative; cursor: pointer; }
 .pb-fill { height: 100%; background: var(--primary); width: 40%; border-radius: 2px; position: relative; }
-.pb-fill::after { 
-  content: ''; position: absolute; right: -4px; top: -3px; width: 10px; height: 10px; 
-  background: white; border-radius: 50%; opacity: 0; transition: 0.2s;
-}
-.pb-progress:hover .pb-fill::after { opacity: 1; }
-
 .pb-right { width: 25%; display: flex; justify-content: flex-end; gap: 15px; color: var(--text-sec); }
 
 /* ============================
    MOBILE RESPONSIVE
    ============================ */
+.bottom-nav { display: none; } /* Hidden on Desktop */
+
 @media (max-width: 900px) {
-  .app-layout {
-    grid-template-areas: 
-      "main"
-      "player";
-    grid-template-columns: 1fr;
+  .app-layout { 
+    display: block; /* Remove Grid */
+    height: 100vh; overflow: hidden;
   }
-  .sidebar, .right-panel { display: none; }
-  .main-content { padding: 20px; }
-  .hero { height: auto; flex-direction: column-reverse; }
+
+  /* Hide Desktop Areas */
+  .sidebar, .right-panel, .nav-arrows { display: none; }
+
+  /* Main Content Adjustments */
+  .main-content { 
+    height: 100%; width: 100%; padding: 20px; 
+    padding-bottom: 160px; /* Space for Player + Nav */
+  }
+
+  /* Header */
+  .header { margin-bottom: 20px; }
+  .search-box { max-width: 100%; }
+
+  /* Hero Stack */
+  .hero { height: auto; flex-direction: column-reverse; margin-bottom: 30px; }
   .hero-img { position: relative; width: 100%; height: 200px; mask-image: none; }
   .hero-content { width: 100%; padding: 20px; }
-  .player-bar { padding: 0 15px; }
-  .pb-right { display: none; }
+  .hero h1 { font-size: 1.8rem; }
+
+  /* Mobile Player (Floating above Nav) */
+  .player-bar {
+    position: fixed; 
+    bottom: var(--mobile-nav-height); left: 0; right: 0;
+    height: 70px; padding: 0 15px;
+    background: rgba(18, 18, 18, 0.95); backdrop-filter: blur(10px);
+    border-top: 1px solid var(--border);
+  }
+  .pb-center, .pb-right, .pb-progress { display: none; } /* Hide complex controls */
+  .pb-track { width: auto; flex: 1; }
+  
+  /* Simple Mobile Controls */
+  .mobile-controls { display: flex; align-items: center; gap: 15px; }
+  .btn-play-mobile { 
+    width: 35px; height: 35px; background: white; color: black; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center; border: none; 
+  }
+
+  /* Bottom Nav */
+  .bottom-nav {
+    display: flex; justify-content: space-around; align-items: center;
+    position: fixed; bottom: 0; left: 0; right: 0;
+    height: var(--mobile-nav-height);
+    background: black; border-top: 1px solid var(--border);
+    z-index: 200;
+  }
+  .nav-tab {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    font-size: 0.7rem; color: var(--text-sec); opacity: 0.7;
+  }
+  .nav-tab.active { color: var(--primary); opacity: 1; font-weight: 700; }
+  
+  /* Progress Line Top of Player */
+  .player-bar::before {
+    content: ''; position: absolute; top: 0; left: 0; height: 2px;
+    background: var(--primary); width: 40%; z-index: 202;
+  }
 }
