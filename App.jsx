@@ -363,7 +363,7 @@ function App() {
     }
   }, [currentSong, isPlaying, queue, qIndex]);
 
-  useEffect(() => { document.title = currentSong ? `${getName(currentSong)} • Aura` : "Aura Music"; }, [currentSong]);
+  useEffect(() => { document.title = currentSong ? `${getName(currentSong)} • Void` : "Voic Music"; }, [currentSong]);
 
   if(view==='loading') return <div style={{height:'100vh',background:'black',display:'flex',justifyContent:'center',alignItems:'center',color:'white'}}>Loading...</div>;
 
@@ -371,7 +371,7 @@ function App() {
     <div className="auth-container">
         <Toaster/>
         <div className="auth-box">
-            <h1 className="brand">Aura.</h1>
+            <h1 className="brand">Void</h1>
             <input className="auth-input" placeholder="Email" onChange={e=>setAuthInput({...authInput,email:e.target.value})}/>
             <input className="auth-input" type="password" placeholder="Password" onChange={e=>setAuthInput({...authInput,password:e.target.value})}/>
             <button className="auth-btn" onClick={handleAuth}>{authMode==='login'?'Sign In':'Sign Up'}</button>
@@ -444,7 +444,7 @@ function App() {
 
         {/* SIDEBAR */}
         <div className="sidebar">
-            <div className="brand">Aura.</div>
+            <div className="brand">Void</div>
             <div className="nav-links">
                 <div className={`nav-item ${tab==='home'?'active':''}`} onClick={()=>setTab('home')}><Icons.Home/> Home</div>
                 <div className={`nav-item ${tab==='library'?'active':''}`} onClick={()=>setTab('library')}><Icons.Library/> Liked Songs</div>
