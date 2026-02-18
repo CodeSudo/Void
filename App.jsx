@@ -22,7 +22,7 @@ function App() {
 
   // --- User State (Firebase) ---
   const [user, setUser] = useState(null);
-  const [likedSongs, setLikedSongs] = useState([]); // Stores songs from Firestore
+  const [likedSongs, setLikedSongs] = useState([]); 
   const [authMode, setAuthMode] = useState('login');
   const [authInput, setAuthInput] = useState({ email: '', password: '' });
 
@@ -39,32 +39,29 @@ function App() {
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   const [quality, setQuality] = useState('320kbps');
+  const [volume, setVolume] = useState(1); // Volume State (0.0 to 1.0)
 
   // ==============================
   // 1. FIREBASE AUTH LISTENER
   // ==============================
   useEffect(() => {
-    // This listens for login/logout automatically
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
         setUser(currentUser);
         setView('app');
         
-        // Load Liked Songs from Cloud
         try {
             const docRef = doc(db, "users", currentUser.uid);
             const docSnap = await getDoc(docRef);
             if (docSnap.exists()) {
                 setLikedSongs(docSnap.data().likedSongs || []);
             } else {
-                // First time setup
                 await setDoc(docRef, { email: currentUser.email, likedSongs: [] });
             }
         } catch (err) {
             console.error("Error loading data:", err);
         }
       } else {
-        // Logged out
         setUser(null);
         setLikedSongs([]);
         setView('auth');
@@ -83,20 +80,15 @@ function App() {
     
     try {
       if (authMode === 'signup') {
-        // Sign Up Logic
         const cred = await createUserWithEmailAndPassword(auth, authInput.email, authInput.password);
-        // Create DB Entry
         await setDoc(doc(db, "users", cred.user.uid), { 
             email: authInput.email, 
             likedSongs: [] 
         });
       } else {
-        // Login Logic
         await signInWithEmailAndPassword(auth, authInput.email, authInput.password);
       }
     } catch (error) {
-      // SHOW ERROR TO USER
-      console.error(error);
       alert("Auth Error: " + error.message);
     }
   };
@@ -114,7 +106,6 @@ function App() {
   const toggleLike = async (song) => {
     if (!user) return;
     
-    // 1. Optimistic Update (Instant UI)
     const isAlreadyLiked = likedSongs.some(s => s.id === song.id);
     let newLikes = [];
     if (isAlreadyLiked) {
@@ -124,7 +115,6 @@ function App() {
     }
     setLikedSongs(newLikes);
 
-    // 2. Cloud Update
     const userRef = doc(db, "users", user.uid);
     try {
         if (isAlreadyLiked) await updateDoc(userRef, { likedSongs: arrayRemove(song) });
@@ -154,12 +144,12 @@ function App() {
     const song = list[idx];
     setCurrentSong(song);
     
-    // Quality selection
     let match = song.downloadUrl.find(u => u.quality === quality);
     let url = match ? match.url : song.downloadUrl[song.downloadUrl.length - 1].url;
     
     if (audioRef.current.src !== url) {
       audioRef.current.src = url;
+      audioRef.current.volume = volume; // Ensure volume is set
       audioRef.current.play().then(()=>setIsPlaying(true));
     } else {
       audioRef.current.play(); setIsPlaying(true);
@@ -181,6 +171,12 @@ function App() {
             if (p) audioRef.current.play();
         }
     }
+  };
+
+  const handleVolumeChange = (e) => {
+    const vol = parseFloat(e.target.value);
+    setVolume(vol);
+    audioRef.current.volume = vol;
   };
 
   const togglePlay = () => {
@@ -324,6 +320,16 @@ function App() {
               </div>
 
               <div className="p-right">
+                 {/* Volume Slider Added Here */}
+                 <span style={{fontSize:'0.8rem', color:'#aaa'}}>🔊</span>
+                 <input 
+                    type="range" 
+                    min="0" max="1" step="0.05" 
+                    value={volume} 
+                    onChange={handleVolumeChange}
+                    className="volume-slider"
+                 />
+                 
                  <select className="quality-select" value={quality} onChange={(e) => handleQualityChange(e.target.value)}>
                     <option value="320kbps">320kbps</option>
                     <option value="160kbps">160kbps</option>
