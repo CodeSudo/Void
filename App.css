@@ -283,3 +283,25 @@ body { background-color: var(--bg-main); color: var(--text-main); height: 100vh;
 }
 
 @keyframes fadeUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Update or Add this to App.css */
+
+/* Heart Button Base Style */
+.card-heart, .btn-like-list {
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: white; /* Default White */
+}
+
+/* The Active 'Liked' State */
+.card-heart.liked, .btn-like-list.liked {
+  color: #ff4757 !important; /* Force Red */
+  fill: #ff4757;
+  opacity: 1 !important; /* Ensure it stays visible */
+  background: white; /* Optional: White background for card floating heart */
+}
+
+/* Specific fix for the floating card heart text color */
+.card-heart.liked {
+  color: #ff4757; 
+}
