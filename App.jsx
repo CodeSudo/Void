@@ -1,216 +1,238 @@
-import React, { useState, useRef, useEffect } from 'react';
-import './App.css';
+import React, { useState, useRef, useEffect } from "react";
+import "./App.css";
 
 const API_BASE = "https://saavn.sumit.co/api";
 
 function App() {
-  // --- UI State ---
-  const [view, setView] = useState('auth'); 
+  // Navigation & View State
+  const [view, setView] = useState("auth");
+  const [tab, setTab] = useState("home");
   const [loading, setLoading] = useState(false);
-  const [showSidebar, setShowSidebar] = useState(false);
-  const [sidebarTab, setSidebarTab] = useState('queue');
-  
-  // --- Auth & Data State (LocalStorage) ---
-  const [user, setUser] = useState(null); 
-  const [authMode, setAuthMode] = useState('login');
-  const [authInput, setAuthInput] = useState({ username: '', password: '' });
 
-  // --- Music Data ---
-  const [searchQuery, setSearchQuery] = useState('');
+  // User & Auth State
+  const [user, setUser] = useState(null);
+  const [authMode, setAuthMode] = useState("login");
+  const [authInput, setAuthInput] = useState({ username: "", password: "" });
+
+  // Music Data
+  const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
-  
-  // --- Player State ---
+
+  // Player State
   const audioRef = useRef(new Audio());
   const [isPlaying, setIsPlaying] = useState(false);
-  const [currentSong, setCurrentSong] = useState(null); // This controls player visibility
-  const [currentQueue, setCurrentQueue] = useState([]);
-  const [currentIndex, setCurrentIndex] = useState(-1);
-  const [currentTime, setCurrentTime] = useState(0);
+  const [currentSong, setCurrentSong] = useState(null);
+  const [queue, setQueue] = useState([]);
+  const [qIndex, setQIndex] = useState(-1);
+  const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [quality, setQuality] = useState('320kbps');
-  const [lyrics, setLyrics] = useState(null);
+  const [quality, setQuality] = useState("320kbps"); // Default Quality
 
   // ==============================
-  // 1. AUTHENTICATION (LocalStorage)
+  // 1. AUTH (Local Storage)
   // ==============================
-
   useEffect(() => {
-    // Check if user is logged in
-    const storedUser = localStorage.getItem('musiq_user');
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
-      setView('home');
+    const stored = localStorage.getItem("musiq_user");
+    if (stored) {
+      setUser(JSON.parse(stored));
+      setView("app");
     }
   }, []);
 
-  // Fetch Trending when User Logs in
-  useEffect(() => {
-    if (user && view === 'home' && searchResults.length === 0) {
-      fetchTrending();
-    }
-  }, [user, view]);
-
   const handleAuth = () => {
-    if (!authInput.username || !authInput.password) return alert("Please fill all fields");
-    
-    const users = JSON.parse(localStorage.getItem('musiq_users') || "[]");
+    if (!authInput.username || !authInput.password)
+      return alert("Fill all fields");
+    const dbUsers = JSON.parse(localStorage.getItem("musiq_users") || "[]");
 
-    if (authMode === 'signup') {
-      if (users.find(u => u.username === authInput.username)) return alert("User already exists!");
-      
-      const newUser = { 
-        username: authInput.username, 
-        password: authInput.password, 
-        likedSongs: [] 
-      };
-      
-      users.push(newUser);
-      localStorage.setItem('musiq_users', JSON.stringify(users));
-      loginUser(newUser);
-
+    if (authMode === "signup") {
+      if (dbUsers.find((u) => u.username === authInput.username))
+        return alert("Username taken");
+      const newUser = { ...authInput, likedSongs: [] };
+      dbUsers.push(newUser);
+      localStorage.setItem("musiq_users", JSON.stringify(dbUsers));
+      login(newUser);
     } else {
-      const foundUser = users.find(u => u.username === authInput.username && u.password === authInput.password);
-      if (foundUser) {
-        loginUser(foundUser);
-      } else {
-        alert("Invalid credentials");
-      }
+      const found = dbUsers.find(
+        (u) =>
+          u.username === authInput.username &&
+          u.password === authInput.password,
+      );
+      if (found) login(found);
+      else alert("Invalid credentials");
     }
   };
 
-  const loginUser = (userData) => {
-    setUser(userData);
-    localStorage.setItem('musiq_user', JSON.stringify(userData));
-    setView('home');
-    setAuthInput({ username: '', password: '' });
+  const login = (u) => {
+    setUser(u);
+    localStorage.setItem("musiq_user", JSON.stringify(u));
+    setView("app");
+    setAuthInput({ username: "", password: "" });
   };
 
   const logout = () => {
     setUser(null);
-    localStorage.removeItem('musiq_user');
-    setView('auth');
+    localStorage.removeItem("musiq_user");
+    setView("auth");
     setCurrentSong(null);
     setIsPlaying(false);
     audioRef.current.pause();
-    setSearchResults([]);
   };
 
   // ==============================
-  // 2. DATA LOGIC (Likes)
+  // 2. LOGIC
   // ==============================
-
   const toggleLike = (song) => {
     if (!user) return;
-    
-    // 1. Update Local State
-    let updatedLikes;
-    const isAlreadyLiked = user.likedSongs.some(s => s.id === song.id);
+    const isLiked = user.likedSongs.some((s) => s.id === song.id);
+    let newLikes = isLiked
+      ? user.likedSongs.filter((s) => s.id !== song.id)
+      : [...user.likedSongs, song];
 
-    if (isAlreadyLiked) {
-      updatedLikes = user.likedSongs.filter(s => s.id !== song.id);
-    } else {
-      updatedLikes = [...user.likedSongs, song];
-    }
-
-    const updatedUser = { ...user, likedSongs: updatedLikes };
+    const updatedUser = { ...user, likedSongs: newLikes };
     setUser(updatedUser);
-    localStorage.setItem('musiq_user', JSON.stringify(updatedUser));
+    localStorage.setItem("musiq_user", JSON.stringify(updatedUser));
 
-    // 2. Update Database (LocalStorage Users Array)
-    const allUsers = JSON.parse(localStorage.getItem('musiq_users') || "[]");
-    const userIndex = allUsers.findIndex(u => u.username === user.username);
-    if (userIndex !== -1) {
-      allUsers[userIndex] = updatedUser;
-      localStorage.setItem('musiq_users', JSON.stringify(allUsers));
+    // Sync DB
+    const dbUsers = JSON.parse(localStorage.getItem("musiq_users") || "[]");
+    const idx = dbUsers.findIndex((u) => u.username === user.username);
+    if (idx !== -1) {
+      dbUsers[idx] = updatedUser;
+      localStorage.setItem("musiq_users", JSON.stringify(dbUsers));
     }
   };
 
-  const isLiked = (id) => user?.likedSongs.some(s => s.id === id);
-
-  // ==============================
-  // 3. API & PLAYER LOGIC
-  // ==============================
-
-  const fetchTrending = async () => {
+  const doSearch = async () => {
+    if (!searchQuery) return;
     setLoading(true);
+    setTab("home");
     try {
-      const res = await fetch(`${API_BASE}/search/songs?query=Trending&limit=20`);
+      const res = await fetch(
+        `${API_BASE}/search/songs?query=${encodeURIComponent(searchQuery)}`,
+      );
       const data = await res.json();
       if (data.success) setSearchResults(data.data.results);
-    } catch (e) { console.error(e); } finally { setLoading(false); }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleSearch = async () => {
-    if (!searchQuery) { fetchTrending(); return; }
-    setLoading(true); setView('home');
-    try {
-      const res = await fetch(`${API_BASE}/search/songs?query=${encodeURIComponent(searchQuery)}`);
-      const data = await res.json();
-      if (data.success) setSearchResults(data.data.results);
-    } catch (e) { console.error(e); } finally { setLoading(false); }
-  };
-
-  const fetchLyrics = async (song) => {
-    setLyrics("Loading lyrics...");
-    if (!song.hasLyrics || song.hasLyrics === "false") { setLyrics("No lyrics available."); return; }
-    try {
-      const res = await fetch(`${API_BASE}/lyrics?id=${song.id}`);
-      const data = await res.json();
-      if (data.success && data.data?.lyrics) setLyrics(data.data.lyrics.replace(/<br>/g, '\n'));
-      else setLyrics("No lyrics available.");
-    } catch { setLyrics("Failed to load lyrics."); }
-  };
-
-  const playQueue = (queue, index) => {
-    if (index < 0 || index >= queue.length) return;
-    if (queue !== currentQueue) setCurrentQueue(queue);
-    
-    setCurrentIndex(index);
-    const song = queue[index];
+  // ==============================
+  // 3. PLAYER
+  // ==============================
+  const playSong = (list, idx) => {
+    if (idx < 0 || idx >= list.length) return;
+    if (list !== queue) setQueue(list);
+    setQIndex(idx);
+    const song = list[idx];
     setCurrentSong(song);
-    fetchLyrics(song);
 
-    let match = song.downloadUrl.find(u => u.quality === quality);
-    let url = match ? match.url : song.downloadUrl[song.downloadUrl.length - 1].url;
+    // Find URL based on selected quality
+    let match = song.downloadUrl.find((u) => u.quality === quality);
+    let url = match
+      ? match.url
+      : song.downloadUrl[song.downloadUrl.length - 1].url;
 
     if (audioRef.current.src !== url) {
       audioRef.current.src = url;
-      audioRef.current.play().then(() => setIsPlaying(true)).catch(e => console.error(e));
+      audioRef.current.play().then(() => setIsPlaying(true));
+    } else {
+      audioRef.current.play();
+      setIsPlaying(true);
+    }
+  };
+
+  // Handle Quality Change
+  const handleQualityChange = (newQuality) => {
+    setQuality(newQuality);
+    if (currentSong) {
+      const curTime = audioRef.current.currentTime;
+      const isPlayingNow = !audioRef.current.paused;
+
+      // Find new URL
+      let match = currentSong.downloadUrl.find((u) => u.quality === newQuality);
+      let url = match
+        ? match.url
+        : currentSong.downloadUrl[currentSong.downloadUrl.length - 1].url;
+
+      if (audioRef.current.src !== url) {
+        audioRef.current.src = url;
+        audioRef.current.currentTime = curTime;
+        if (isPlayingNow) audioRef.current.play();
+      }
     }
   };
 
   const togglePlay = () => {
-    if (audioRef.current.paused) { audioRef.current.play(); setIsPlaying(true); }
-    else { audioRef.current.pause(); setIsPlaying(false); }
+    if (audioRef.current.paused) {
+      audioRef.current.play();
+      setIsPlaying(true);
+    } else {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    }
   };
 
   useEffect(() => {
-    const audio = audioRef.current;
-    const updateTime = () => { setCurrentTime(audio.currentTime); setDuration(audio.duration || 0); };
-    const handleEnded = () => playQueue(currentQueue, currentIndex + 1);
-    audio.addEventListener('timeupdate', updateTime);
-    audio.addEventListener('ended', handleEnded);
-    return () => { audio.removeEventListener('timeupdate', updateTime); audio.removeEventListener('ended', handleEnded); };
-  }, [currentIndex, currentQueue]);
+    const a = audioRef.current;
+    const time = () => {
+      setProgress(a.currentTime);
+      setDuration(a.duration || 0);
+    };
+    const end = () => playSong(queue, qIndex + 1);
+    a.addEventListener("timeupdate", time);
+    a.addEventListener("ended", end);
+    return () => {
+      a.removeEventListener("timeupdate", time);
+      a.removeEventListener("ended", end);
+    };
+  }, [queue, qIndex]);
 
-  const getImg = (img) => Array.isArray(img) ? img[img.length - 1].url : img;
-  const fmtTime = (s) => { const m = Math.floor(s/60); const sec = Math.floor(s%60); return `${m}:${sec<10?'0'+sec:sec}`; };
+  const getImg = (i) => (Array.isArray(i) ? i[i.length - 1].url : i);
+  const isLiked = (id) => user?.likedSongs.some((s) => s.id === id);
 
   // ==============================
-  // 4. RENDER
+  // 4. VIEW
   // ==============================
 
-  if (view === 'auth') {
+  if (view === "auth") {
     return (
       <div className="auth-container">
         <div className="auth-box">
-          <h2>Musiq.</h2>
-          <h3>{authMode === 'login' ? 'Welcome Back' : 'Join the Vibe'}</h3>
-          <input className="auth-input" type="text" placeholder="Username" value={authInput.username} onChange={e => setAuthInput({...authInput, username: e.target.value})} />
-          <input className="auth-input" type="password" placeholder="Password" value={authInput.password} onChange={e => setAuthInput({...authInput, password: e.target.value})} />
-          <button className="auth-submit" onClick={handleAuth}>{authMode === 'login' ? 'Log In' : 'Sign Up'}</button>
-          <p className="auth-link" onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')}>
-            {authMode === 'login' ? "New here? Create account" : "Have an account? Log In"}
+          <h1
+            className="logo"
+            style={{ fontSize: "3rem", marginBottom: "20px" }}
+          >
+            Musiq.
+          </h1>
+          <input
+            placeholder="Username"
+            value={authInput.username}
+            onChange={(e) =>
+              setAuthInput({ ...authInput, username: e.target.value })
+            }
+            className="auth-input"
+          />
+          <input
+            type="password"
+            placeholder="Password"
+            value={authInput.password}
+            onChange={(e) =>
+              setAuthInput({ ...authInput, password: e.target.value })
+            }
+            className="auth-input"
+          />
+          <button className="auth-btn" onClick={handleAuth}>
+            {authMode === "login" ? "Sign In" : "Sign Up"}
+          </button>
+          <p
+            style={{ color: "#666", marginTop: "15px", cursor: "pointer" }}
+            onClick={() =>
+              setAuthMode(authMode === "login" ? "signup" : "login")
+            }
+          >
+            {authMode === "login" ? "Create Account" : "Have Account?"}
           </p>
         </div>
       </div>
@@ -218,140 +240,197 @@ function App() {
   }
 
   return (
-    <div className="app">
-      <header>
-        <div className="logo" onClick={() => { setView('home'); setSearchQuery(''); fetchTrending(); }}>Musiq.</div>
-        <div className="search-container">
-          <input 
-            type="text" placeholder="Search artists, songs..." 
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-          />
+    <div className="app-layout">
+      {/* 1. Sidebar */}
+      <div className="sidebar">
+        <div className="logo">Musiq.</div>
+        <div
+          className={`nav-item ${tab === "home" ? "active" : ""}`}
+          onClick={() => setTab("home")}
+        >
+          <span>🏠</span> Home
         </div>
-        <div className="user-menu">
-           <button className="btn-pill btn-primary" onClick={() => setView('library')}>My Library</button>
-           <button className="btn-pill btn-sec" onClick={logout}>Logout</button>
-        </div>
-      </header>
-
-      <main>
-        {loading && <div className="loader"></div>}
-
-        {view === 'home' && (
-          <>
-            <h2>{searchQuery ? `Results for "${searchQuery}"` : "Trending Now"}</h2>
-            <div className="grid">
-              {searchResults.map((item) => (
-                <div key={item.id} className="card" onClick={() => playQueue([item], 0)}>
-                  <img src={getImg(item.image)} alt="" />
-                  <h3>{item.name}</h3>
-                  <p>{item.primaryArtists}</p>
-                  <button 
-                    className={`btn-heart ${isLiked(item.id) ? 'liked' : ''}`} 
-                    onClick={(e) => { e.stopPropagation(); toggleLike(item); }}
-                  >&#10084;</button>
-                </div>
-              ))}
-              {!loading && searchResults.length === 0 && <p className="empty-state">No vibes found.</p>}
-            </div>
-          </>
-        )}
-
-        {view === 'library' && (
-          <div className="detail-view">
-            <h2>My Collection</h2>
-            {user.likedSongs.length === 0 ? <p className="empty-state">Your library is empty. Go add some bangers.</p> : (
-              <div className="track-list">
-                {user.likedSongs.map((song, idx) => (
-                  <div key={song.id} className={`track ${currentSong?.id === song.id ? 'active' : ''}`}>
-                     <div style={{flex:1, display:'flex', alignItems:'center'}} onClick={() => playQueue(user.likedSongs, idx)}>
-                        <img src={getImg(song.image)} alt="" />
-                        <div className="track-info">
-                          <span style={{color: 'white', fontWeight:'500'}}>{song.name}</span>
-                          <span style={{fontSize:'0.8rem', opacity:0.7, display:'block'}}>{song.primaryArtists}</span>
-                        </div>
-                     </div>
-                     <button className="btn-pill btn-sec" style={{padding:'5px 10px', fontSize:'0.8rem'}} onClick={() => toggleLike(song)}>Remove</button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </main>
-
-      {/* SIDEBAR */}
-      <div className={`sidebar ${showSidebar ? 'open' : ''}`}>
-        <div className="sidebar-header">
-            <div className={`sidebar-tab ${sidebarTab === 'queue' ? 'active' : ''}`} onClick={() => setSidebarTab('queue')}>Up Next</div>
-            <div className={`sidebar-tab ${sidebarTab === 'lyrics' ? 'active' : ''}`} onClick={() => setSidebarTab('lyrics')}>Lyrics</div>
-            <div className="sidebar-tab" onClick={() => setShowSidebar(false)} style={{flex:0, padding:'20px'}}>✕</div>
-        </div>
-        <div className="sidebar-content">
-            {sidebarTab === 'queue' ? (
-                currentQueue.length > 0 ? (
-                    currentQueue.map((song, idx) => (
-                        <div key={`${song.id}-${idx}`} className={`track ${currentIndex === idx ? 'active' : ''}`} onClick={() => playQueue(currentQueue, idx)}>
-                            <img src={getImg(song.image)} alt="" style={{width:'35px', height:'35px'}} />
-                            <div style={{overflow:'hidden'}}>
-                                <h4 style={{fontSize:'0.85rem', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>{song.name}</h4>
-                                <p style={{fontSize:'0.75rem', color:'#888'}}>{song.primaryArtists}</p>
-                            </div>
-                        </div>
-                    ))
-                ) : <div className="empty-state" style={{fontSize:'0.9rem', marginTop:'20px'}}>Queue is empty</div>
-            ) : (
-                <div style={{padding:'10px', whiteSpace:'pre-wrap', lineHeight:'1.6', color:'#ddd', fontSize:'0.9rem', textAlign:'center'}}>
-                    {currentSong ? (lyrics || "Loading...") : "Play a song to see lyrics"}
-                </div>
-            )}
+        <div
+          className={`nav-item ${tab === "library" ? "active" : ""}`}
+          onClick={() => setTab("library")}
+        >
+          <span>❤️</span> Liked Songs
         </div>
       </div>
 
-      {/* PLAYER BAR */}
-      <div className={currentSong ? "player visible" : "player"}>
-        {currentSong && (
-          <>
-            <div className="player-info">
-              <img src={getImg(currentSong.image)} alt="" />
-              <div className="player-text">
-                <h4>{currentSong.name}</h4>
-                <p>{currentSong.primaryArtists}</p>
-              </div>
-              <button className={`btn-heart ${isLiked(currentSong.id) ? 'liked' : ''}`} style={{position:'static', opacity:1, transform:'scale(1)', background:'transparent'}} onClick={() => toggleLike(currentSong)}>&#10084;</button>
-            </div>
+      {/* 2. Main Content */}
+      <div className="main-content">
+        <div className="header">
+          <div className="search-bar">
+            <span>🔍</span>
+            <input
+              placeholder="Search songs, artists..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && doSearch()}
+            />
+          </div>
+          <div className="user-pill" onClick={logout}>
+            <div className="avatar">{user.username[0].toUpperCase()}</div>
+            <span
+              style={{ fontSize: "0.9rem", color: "#aaa", marginLeft: "10px" }}
+            >
+              Logout
+            </span>
+          </div>
+        </div>
 
-            <div className="player-controls">
-              <div className="buttons">
-                <button className="btn-control" onClick={() => playQueue(currentQueue, currentIndex - 1)}>&#9664;</button>
-                <button className="btn-play" onClick={togglePlay}>
-                  {isPlaying ? <span>&#10074;&#10074;</span> : <span style={{marginLeft:'3px'}}>&#9658;</span>}
-                </button>
-                <button className="btn-control" onClick={() => playQueue(currentQueue, currentIndex + 1)}>&#9654;</button>
-              </div>
-              <div className="progress-container">
-                <span>{fmtTime(currentTime)}</span>
-                <div className="progress-bar" onClick={(e) => {
-                   const width = e.currentTarget.clientWidth;
-                   const clickX = e.nativeEvent.offsetX;
-                   audioRef.current.currentTime = (clickX / width) * duration;
-                }}>
-                  <div className="progress-fill" style={{width: `${(currentTime / duration) * 100}%`}}></div>
+        <div className="scroll-area">
+          {tab === "home" && (
+            <>
+              {!loading && searchResults.length === 0 ? (
+                <div
+                  style={{
+                    textAlign: "center",
+                    marginTop: "10vh",
+                    color: "#555",
+                  }}
+                >
+                  <h1 style={{ fontSize: "3rem", marginBottom: "10px" }}>
+                    Welcome Back
+                  </h1>
+                  <p>Start searching to play music.</p>
                 </div>
-                <span>{fmtTime(duration)}</span>
+              ) : (
+                <>
+                  <h2>Results</h2>
+                  <div className="grid">
+                    {searchResults.map((item) => (
+                      <div
+                        key={item.id}
+                        className="card"
+                        onClick={() => playSong([item], 0)}
+                      >
+                        <img src={getImg(item.image)} alt="" />
+                        <h3>{item.name}</h3>
+                        <p>{item.primaryArtists}</p>
+                        <div
+                          className={`card-heart ${isLiked(item.id) ? "liked" : ""}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleLike(item);
+                          }}
+                        >
+                          ♥
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </>
+          )}
+
+          {tab === "library" && (
+            <>
+              <h2>Liked Songs</h2>
+              {user.likedSongs.length === 0 ? (
+                <p style={{ color: "#666" }}>No songs liked yet.</p>
+              ) : (
+                <div className="grid">
+                  {user.likedSongs.map((item, idx) => (
+                    <div
+                      key={item.id}
+                      className="card"
+                      onClick={() => playSong(user.likedSongs, idx)}
+                    >
+                      <img src={getImg(item.image)} alt="" />
+                      <h3>{item.name}</h3>
+                      <p>{item.primaryArtists}</p>
+                      <div
+                        className="card-heart liked"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleLike(item);
+                        }}
+                      >
+                        ♥
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* 3. Player Bar */}
+        <div className={`player-bar ${currentSong ? "visible" : ""}`}>
+          {currentSong && (
+            <>
+              {/* Left: Song Info */}
+              <div className="p-left">
+                <img src={getImg(currentSong.image)} alt="" />
+                <div>
+                  <h4 style={{ color: "white", fontSize: "0.95rem" }}>
+                    {currentSong.name}
+                  </h4>
+                  <p style={{ color: "#888", fontSize: "0.8rem" }}>
+                    {currentSong.primaryArtists}
+                  </p>
+                </div>
               </div>
-            </div>
-            
-            <div style={{display:'flex', gap:'10px', alignItems:'center', width:'30%', justifyContent:'flex-end'}}>
-               <select style={{background:'#222', color:'white', border:'none', borderRadius:'5px', padding:'5px', fontSize:'0.7rem'}} value={quality} onChange={(e) => setQuality(e.target.value)}>
-                  <option value="320kbps">HQ</option>
-                  <option value="160kbps">SQ</option>
-               </select>
-               <button className="btn-control" onClick={() => setShowSidebar(!showSidebar)}>&#9776;</button>
-            </div>
-          </>
-        )}
+
+              {/* Center: Controls */}
+              <div className="p-center">
+                <div className="p-controls">
+                  <span
+                    style={{ color: "#aaa", cursor: "pointer" }}
+                    onClick={() => playSong(queue, qIndex - 1)}
+                  >
+                    ⏮
+                  </span>
+                  <div className="btn-play" onClick={togglePlay}>
+                    {isPlaying ? "||" : "▶"}
+                  </div>
+                  <span
+                    style={{ color: "#aaa", cursor: "pointer" }}
+                    onClick={() => playSong(queue, qIndex + 1)}
+                  >
+                    ⏭
+                  </span>
+                </div>
+                <div
+                  className="progress-rail"
+                  onClick={(e) => {
+                    const w = e.currentTarget.clientWidth;
+                    const x = e.nativeEvent.offsetX;
+                    audioRef.current.currentTime = (x / w) * duration;
+                  }}
+                >
+                  <div
+                    className="progress-fill"
+                    style={{ width: `${(progress / duration) * 100}%` }}
+                  ></div>
+                </div>
+              </div>
+
+              {/* Right: Quality & Time */}
+              <div className="p-right">
+                <select
+                  className="quality-select"
+                  value={quality}
+                  onChange={(e) => handleQualityChange(e.target.value)}
+                >
+                  <option value="320kbps">320kbps</option>
+                  <option value="160kbps">160kbps</option>
+                  <option value="96kbps">96kbps</option>
+                </select>
+                <span className="time-text">
+                  {Math.floor(progress / 60)}:
+                  {Math.floor(progress % 60)
+                    .toString()
+                    .padStart(2, "0")}
+                </span>
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
