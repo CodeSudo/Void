@@ -259,3 +259,33 @@ body { background-color: var(--bg-main); color: var(--text-main); height: 100vh;
   background: #222;
   color: white;
 }
+
+/* --- BACK BUTTON --- */
+.btn-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.08); /* Glass effect */
+  border: 1px solid var(--border);
+  color: var(--text-main);
+  padding: 10px 24px;
+  border-radius: 50px;
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+  margin-bottom: 30px; /* Space below button */
+  transition: all 0.2s ease;
+  backdrop-filter: blur(10px);
+}
+
+.btn-back:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.4);
+  transform: translateX(-4px); /* Slide left effect */
+  box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+}
+
+.btn-back svg {
+  width: 18px;
+  height: 18px;
+}
