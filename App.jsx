@@ -55,7 +55,6 @@ function App() {
   const [resArtists, setResArtists] = useState([]);
   const [resPlaylists, setResPlaylists] = useState([]);
   
-  // NEW: Dedicated state for Mood View
   const [moodPlaylists, setMoodPlaylists] = useState([]);
 
   const [homeData, setHomeData] = useState({ 
@@ -154,7 +153,10 @@ function App() {
         fetch(`${API_BASE}/search/artists?query=${encodeURIComponent(searchQuery)}`).then(r=>r.json()),
         fetch(`${API_BASE}/search/playlists?query=${encodeURIComponent(searchQuery)}`).then(r=>r.json())
       ]);
-      setResSongs(s?.data?.results || []); setResAlbums(a?.data?.results || []); setResArtists(ar?.data?.results || []); setResPlaylists(p?.data?.results || []);
+      setResSongs(s?.data?.results || []);
+      setResAlbums(a?.data?.results || []);
+      setResArtists(ar?.data?.results || []);
+      setResPlaylists(p?.data?.results || []);
     } catch(e) { console.error(e); } finally { setLoading(false); }
   };
 
@@ -175,19 +177,33 @@ function App() {
 
   // --- PLAYER LOGIC ---
   const playSong = (list, idx) => {
-    if(!list || idx < 0 || !list[idx]) return;
+    if(!list || !list[idx]) return;
     setQueue(list); setQIndex(idx);
     const s = list[idx];
     setCurrentSong(s);
     addToHistory(s);
     
-    const url = s.downloadUrl?.find(u=>u.quality===quality)?.url || s.downloadUrl?.[0]?.url;
+    // Quality selection logic
+    const urlObj = s.downloadUrl?.find(u => u.quality === quality);
+    const url = urlObj ? urlObj.url : (s.downloadUrl?.[s.downloadUrl.length-1]?.url || s.downloadUrl?.[0]?.url);
+
     if(url) {
         if(audioRef.current.src !== url) {
-            audioRef.current.src = url; audioRef.current.volume = volume;
-            audioRef.current.play().catch(()=>{}); setIsPlaying(true);
+            audioRef.current.src = url;
+            audioRef.current.volume = volume;
+            audioRef.current.play().catch(()=>{});
+            setIsPlaying(true);
         } else { audioRef.current.play(); setIsPlaying(true); }
     } else toast.error("Audio unavailable");
+  };
+
+  const handleQualityChange = (newQ) => {
+    setQuality(newQ);
+    if(currentSong && isPlaying) {
+        // Re-trigger play to switch source while keeping position if possible (complex, simple reload here)
+        playSong(queue, qIndex); 
+        toast.success(`Quality set to ${newQ}`);
+    }
   };
 
   const togglePlay = () => {
@@ -262,12 +278,11 @@ function App() {
     } catch(e) { toast.error("Failed"); }
   };
 
-  // --- NAVIGATION (FIXED MOOD) ---
+  // --- NAVIGATION ---
   const handleCardClick = async (item, type) => {
     if (type === 'song') { playSong([item], 0); }
     else if (type === 'playlist_custom') { setSelectedItem(item); setTab('details'); setDetailsSongs(item.songs || []); }
     else if (type === 'mood') {
-        // FIXED: Only fetch Playlists for mood, treat as separate View
         setLoading(true); setTab('mood'); setSelectedItem(item);
         try {
             const res = await fetch(`${API_BASE}/search/playlists?query=${encodeURIComponent(item.query)}`).then(r=>r.json());
@@ -371,7 +386,6 @@ function App() {
     <div className="app-layout">
         <Toaster position="top-center" toastOptions={{style:{background:'#333', color:'#fff'}}}/>
 
-        {/* --- OVERLAYS --- */}
         {showLyrics && (
             <div className="lyrics-overlay">
                 <button className="lyrics-close" onClick={()=>setShowLyrics(false)}>✕</button>
@@ -436,7 +450,6 @@ function App() {
             <div className="nav-links">
                 <div className={`nav-item ${tab==='home'?'active':''}`} onClick={()=>setTab('home')}><Icons.Home/> Home</div>
                 <div className={`nav-item ${tab==='library'?'active':''}`} onClick={()=>setTab('library')}><Icons.Library/> Liked Songs</div>
-                
                 <div className="nav-section-title">My Playlists</div>
                 {userPlaylists.map(pl => (
                     <div key={pl.id} className={`nav-item ${selectedItem?.id===pl.id?'active':''}`} onClick={()=>handleCardClick(pl, 'playlist_custom')}>
@@ -518,11 +531,51 @@ function App() {
                                 </div>
                             </>
                         )}
-                        {/* More search results categories can be added here if needed */}
+                        {resAlbums.length > 0 && (
+                            <>
+                                <div className="section-header" style={{marginTop:40}}>Albums</div>
+                                <div className="horizontal-scroll">
+                                    {resAlbums.map(a => (
+                                        <div key={a.id} className="card" onClick={()=>handleCardClick(a, 'album')}>
+                                            <img src={getImg(a.image)} alt=""/>
+                                            <h3>{getName(a)}</h3>
+                                            <p>{a.year}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            </>
+                        )}
+                        {resArtists.length > 0 && (
+                            <>
+                                <div className="section-header" style={{marginTop:40}}>Artists</div>
+                                <div className="horizontal-scroll">
+                                    {resArtists.map(a => (
+                                        <div key={a.id} className="card" onClick={()=>handleCardClick(a, 'artist')}>
+                                            <img src={getImg(a.image)} alt="" style={{borderRadius:'50%'}}/>
+                                            <h3 style={{textAlign:'center'}}>{getName(a)}</h3>
+                                        </div>
+                                    ))}
+                                </div>
+                            </>
+                        )}
+                        {resPlaylists.length > 0 && (
+                            <>
+                                <div className="section-header" style={{marginTop:40}}>Playlists</div>
+                                <div className="horizontal-scroll">
+                                    {resPlaylists.map(p => (
+                                        <div key={p.id} className="card" onClick={()=>handleCardClick(p, 'playlist')}>
+                                            <img src={getImg(p.image)} alt=""/>
+                                            <h3>{getName(p)}</h3>
+                                            <p>{p.language}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            </>
+                        )}
                     </div>
                 )}
 
-                {/* MOOD VIEW - NEW FEATURE */}
+                {/* MOOD VIEW */}
                 {tab === 'mood' && selectedItem && (
                     <div className="section">
                         <div className="details-header" style={{background: selectedItem.color, borderRadius:'24px', padding:'40px', marginBottom:'40px'}}>
@@ -549,7 +602,7 @@ function App() {
                             <p>Discover new music, fresh albums, and curated playlists.</p>
                         </div>
 
-                        {/* 1. History */}
+                        {/* History */}
                         {history.length > 0 && (
                             <div className="section">
                                 <div className="section-header">Recently Played</div>
@@ -564,7 +617,7 @@ function App() {
                             </div>
                         )}
 
-                        {/* 2. Moods */}
+                        {/* Moods */}
                         <div className="section">
                             <div className="section-header">Moods</div>
                             <div className="horizontal-scroll">
@@ -576,7 +629,7 @@ function App() {
                             </div>
                         </div>
 
-                        {/* 3. Trending */}
+                        {/* Trending */}
                         <div className="section">
                             <div className="section-header">Trending Now</div>
                             <div className="horizontal-scroll">
@@ -594,7 +647,7 @@ function App() {
                             </div>
                         </div>
 
-                        {/* 4. Top Charts */}
+                        {/* Charts */}
                         <div className="section">
                             <div className="section-header">Top Charts</div>
                             <div className="horizontal-scroll">
@@ -608,7 +661,7 @@ function App() {
                             </div>
                         </div>
 
-                        {/* 5. New Albums */}
+                        {/* New Albums */}
                         <div className="section">
                             <div className="section-header">New Albums</div>
                             <div className="horizontal-scroll">
@@ -622,7 +675,7 @@ function App() {
                             </div>
                         </div>
 
-                        {/* 6. Radio (Artists) */}
+                        {/* Radio */}
                         <div className="section">
                             <div className="section-header">Radio Stations</div>
                             <div className="horizontal-scroll">
@@ -636,7 +689,7 @@ function App() {
                             </div>
                         </div>
 
-                        {/* 7. Editorial */}
+                        {/* Editorial */}
                         <div className="section">
                             <div className="section-header">Editorial Picks</div>
                             <div className="horizontal-scroll">
@@ -650,7 +703,7 @@ function App() {
                             </div>
                         </div>
 
-                        {/* 8. Fresh Hits */}
+                        {/* Fresh */}
                         <div className="section">
                             <div className="section-header">Fresh Hits</div>
                             <div className="horizontal-scroll">
@@ -664,7 +717,7 @@ function App() {
                             </div>
                         </div>
 
-                        {/* 9. 90s Magic */}
+                        {/* 90s */}
                         <div className="section">
                             <div className="section-header">Best of 90s</div>
                             <div className="horizontal-scroll">
@@ -678,7 +731,7 @@ function App() {
                             </div>
                         </div>
 
-                        {/* 10. Hindi Pop */}
+                        {/* Hindi Pop */}
                         <div className="section">
                             <div className="section-header">New Hindi Pop</div>
                             <div className="horizontal-scroll">
@@ -737,7 +790,7 @@ function App() {
                                 {repeatMode==='one' ? <Icons.RepeatOne/> : <Icons.Repeat/>}
                             </button>
                         </div>
-                        {/* --- TIMELINE --- */}
+                        {/* TIMELINE */}
                         <div className="progress-container">
                             <span>{formatTime(progress)}</span>
                             <div className="progress-rail" onClick={handleSeek}>
@@ -750,6 +803,11 @@ function App() {
                         <button className={`btn-icon ${showLyrics?'active':''}`} onClick={fetchLyrics}><Icons.Mic/></button>
                         <button className={`btn-icon ${showQueue?'active':''}`} onClick={()=>setShowQueue(!showQueue)}><Icons.List/></button>
                         <input type="range" className="volume-slider" min="0" max="1" step="0.1" value={volume} onChange={e=>{setVolume(e.target.value); audioRef.current.volume=e.target.value}}/>
+                        <select className="quality-select" value={quality} onChange={e=>handleQualityChange(e.target.value)}>
+                            <option value="320kbps">320kbps</option>
+                            <option value="160kbps">160kbps</option>
+                            <option value="96kbps">96kbps</option>
+                        </select>
                     </div>
                 </>
             )}
