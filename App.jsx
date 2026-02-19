@@ -29,6 +29,7 @@ import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, on
 import { doc, setDoc, getDoc, updateDoc, arrayUnion, arrayRemove, collection, addDoc, onSnapshot, query } from 'firebase/firestore';
 
 // --- MULTI-SOURCE API ENGINE ---
+// --- MULTI-SOURCE API ENGINE (WITH YOUTUBE FALLBACKS) ---
 const APIs = {
   saavn: {
     name: 'JioSaavn',
@@ -49,29 +50,61 @@ const APIs = {
   youtube: {
     name: 'YouTube Music',
     search: async (query) => {
-      // Using a public Piped instance to safely scrape YouTube Music
-      const res = await fetch(`https://pipedapi.kavin.rocks/search?q=${encodeURIComponent(query)}&filter=music_songs`);
-      const data = await res.json();
+      // List of backup servers in case one is down
+      const instances = [
+        'https://pipedapi.tokhmi.xyz',
+        'https://pipedapi.kavin.rocks',
+        'https://api.piped.projectsegfau.lt',
+        'https://pipedapi.moomoo.me'
+      ];
       
-      // Filter out weird objects and map to our app's format
+      let data = null;
+      // Try each server until one works
+      for (let url of instances) {
+        try {
+          const res = await fetch(`${url}/search?q=${encodeURIComponent(query)}&filter=music_songs`);
+          if (res.ok) {
+            data = await res.json();
+            break; // Success! Stop trying other servers.
+          }
+        } catch (err) {
+          console.warn(`Server ${url} failed, trying next...`);
+        }
+      }
+
+      if (!data) throw new Error("All YouTube servers are currently busy.");
+
       return (data.items || []).filter(item => item.type === 'stream').map(item => ({
-        id: item.url.split('?v=')[1], // Extract YouTube ID
+        id: item.url.split('?v=')[1],
         name: item.title,
         primaryArtists: item.uploaderName,
         image: [{ url: item.thumbnail }], 
-        duration: item.duration, // Piped gives duration in exact seconds
+        duration: item.duration,
         source: 'youtube'
-        // downloadUrl is left blank intentionally. We fetch the live stream on-demand!
       }));
     },
-    // The magical function that gets the live audio stream when you hit play
     getStreamUrl: async (videoId) => {
-      const res = await fetch(`https://pipedapi.kavin.rocks/streams/${videoId}`);
-      const data = await res.json();
-      // Find the best quality audio-only stream (m4a or webm)
-      const audioStream = data.audioStreams?.find(s => s.mimeType.includes('audio/mp4')) || 
-                          data.audioStreams?.find(s => s.mimeType.includes('audio/webm'));
-      return audioStream ? audioStream.url : null;
+      const instances = [
+        'https://pipedapi.tokhmi.xyz',
+        'https://pipedapi.kavin.rocks',
+        'https://api.piped.projectsegfau.lt',
+        'https://pipedapi.moomoo.me'
+      ];
+
+      for (let url of instances) {
+        try {
+          const res = await fetch(`${url}/streams/${videoId}`);
+          if (res.ok) {
+            const data = await res.json();
+            const audioStream = data.audioStreams?.find(s => s.mimeType.includes('audio/mp4')) || 
+                                data.audioStreams?.find(s => s.mimeType.includes('audio/webm'));
+            if (audioStream) return audioStream.url;
+          }
+        } catch (e) {
+          console.warn(`Stream fetch failed on ${url}`);
+        }
+      }
+      return null;
     }
   }
 };
