@@ -2,11 +2,10 @@ import React, { useState, useRef, useEffect } from 'react';
 import './App.css';
 import toast, { Toaster } from 'react-hot-toast';
 
-// --- FIREBASE IMPORTS ---
-// Now that you created src/firebase.js, this will work!
+// --- FIREBASE ---
 import { auth, db } from './firebase'; 
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
-import { doc, setDoc, getDoc, updateDoc, arrayUnion, arrayRemove, collection, onSnapshot, query } from 'firebase/firestore';
+import { doc, setDoc, getDoc, updateDoc, arrayUnion, arrayRemove, collection, addDoc, onSnapshot, query } from 'firebase/firestore';
 
 const API_BASE = "https://saavn.sumit.co/api";
 
@@ -35,15 +34,14 @@ const ICONS = {
   Shuffle: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>,
   Repeat: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>,
   RepeatOne: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/><text x="10" y="15" fontSize="8" fill="currentColor" style={{fontWeight:'bold'}}>1</text></svg>,
-  Radio: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"/></svg>,
   Back: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
 };
 
 function App() {
-  const [view, setView] = useState('loading');
+  // *** BYPASS FIX: Force user to be logged in by default ***
+  const [user, setUser] = useState({ email: 'demo@aura.com', uid: 'demo-user' });
+  const [view, setView] = useState('app'); // Force 'app' view
   const [tab, setTab] = useState('home');
-// This forces the app to think you are already logged in
-const [user, setUser] = useState({ email: 'demo@aura.com', uid: 'demo-user' });
   
   // Data with Safe Defaults
   const [homeData, setHomeData] = useState({ 
@@ -70,6 +68,7 @@ const [user, setUser] = useState({ email: 'demo@aura.com', uid: 'demo-user' });
   const [showAddToPlaylistModal, setShowAddToPlaylistModal] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState("");
   const [songToAdd, setSongToAdd] = useState(null);
+  const [loading, setLoading] = useState(false);
   
   // Auth
   const [authMode, setAuthMode] = useState('login');
@@ -101,7 +100,7 @@ const [user, setUser] = useState({ email: 'demo@aura.com', uid: 'demo-user' });
     const newHist = [song, ...prev.filter(s => String(s.id) !== String(song.id))].slice(0, 15);
     localStorage.setItem('musiq_history', JSON.stringify(newHist));
     setHistory(newHist);
-    if(user && db) {
+    if(user && db && user.uid !== 'demo-user') {
         updateDoc(doc(db, "users", user.uid), { history: newHist }).catch(()=>{});
     }
   };
@@ -232,6 +231,16 @@ const [user, setUser] = useState({ email: 'demo@aura.com', uid: 'demo-user' });
   const toggleLike = async (item) => {
     if(!user) return toast.error("Please Login");
     const liked = isLiked(item.id);
+    // Demo Mode check
+    if (user.uid === 'demo-user') {
+        if(liked) setLikedSongs(likedSongs.filter(s=>String(s.id)!==String(item.id)));
+        else {
+             const clean = { id: String(item.id), name: getName(item), primaryArtists: getDesc(item), image: item.image||[], downloadUrl: item.downloadUrl||[], duration: item.duration||0 };
+             setLikedSongs([...likedSongs, clean]);
+        }
+        return;
+    }
+
     const userRef = doc(db, "users", user.uid);
     if(liked) {
         const toRemove = likedSongs.find(s=>String(s.id)===String(item.id));
@@ -250,6 +259,12 @@ const [user, setUser] = useState({ email: 'demo@aura.com', uid: 'demo-user' });
 
   const createPlaylist = async () => {
     if(!newPlaylistName.trim()) return;
+    // Demo mode
+    if(user.uid === 'demo-user') {
+        setUserPlaylists([...userPlaylists, { id: Date.now(), name: newPlaylistName, songs: [] }]);
+        setNewPlaylistName(""); setShowPlaylistModal(false); toast.success("Playlist Created (Demo)");
+        return;
+    }
     try {
         const ref = collection(db, `users/${user.uid}/playlists`);
         await addDoc(ref, { name: newPlaylistName, songs: [] });
@@ -259,6 +274,11 @@ const [user, setUser] = useState({ email: 'demo@aura.com', uid: 'demo-user' });
 
   const addToPlaylist = async (playlistId) => {
     if(!songToAdd) return;
+    // Demo mode
+    if(user.uid === 'demo-user') {
+        toast.success("Added to Playlist (Demo)"); setShowAddToPlaylistModal(false);
+        return;
+    }
     try {
         const ref = doc(db, `users/${user.uid}/playlists/${playlistId}`);
         const clean = { id: String(songToAdd.id), name: getName(songToAdd), primaryArtists: getDesc(songToAdd), image: songToAdd.image||[], downloadUrl: songToAdd.downloadUrl||[] };
@@ -288,12 +308,9 @@ const [user, setUser] = useState({ email: 'demo@aura.com', uid: 'demo-user' });
     }
   };
 
-  const [loading, setLoading] = useState(false);
-
   // --- AUTH & EFFECTS ---
   useEffect(() => {
-    // Safety check: If Firebase is missing, go straight to app to avoid black screen
-    if (!auth) { setView('app'); return; }
+    if(!auth) { setView('app'); fetchHome(); return; } // Safety Bypass
 
     const unsub = onAuthStateChanged(auth, async (u) => {
         if(u) {
@@ -311,8 +328,9 @@ const [user, setUser] = useState({ email: 'demo@aura.com', uid: 'demo-user' });
                 onSnapshot(q, (snapshot) => setUserPlaylists(snapshot.docs.map(d => ({id: d.id, ...d.data()}))));
             } catch {}
         } else { 
-            setUser(null); setView('auth'); 
-            setHistory(JSON.parse(localStorage.getItem('musiq_history') || '[]'));
+            // !!! BYPASS FOR YOU: If no user found, STAY logged in as Demo !!!
+            // setUser(null); setView('auth'); 
+            fetchHome(); // Load data anyway
         }
     });
     return () => unsub();
@@ -452,7 +470,7 @@ const [user, setUser] = useState({ email: 'demo@aura.com', uid: 'demo-user' });
             <div className="nav-links">
                 <div className={`nav-item ${tab==='home'?'active':''}`} onClick={()=>setTab('home')}><Icons.Home/> Home</div>
                 <div className={`nav-item ${tab==='search'?'active':''}`} onClick={()=>setTab('search')}><Icons.Search/> Search</div>
-                <div className={`nav-item ${tab==='library'?'active':''}`} onClick={()=>setTab('library')}><Icons.Library/> Library</div>
+                <div className={`nav-item ${tab==='library'?'active':''}`} onClick={()=>setTab('library')}><Icons.Library/> Liked Songs</div>
                 <div className={`nav-item ${tab==='profile'?'active':''}`} onClick={()=>setTab('profile')}><span style={{fontSize:'1.2rem'}}>👤</span> Profile</div>
                 
                 <div className="nav-section-title">My Playlists</div>
@@ -489,7 +507,10 @@ const [user, setUser] = useState({ email: 'demo@aura.com', uid: 'demo-user' });
                             <div className="profile-info">
                                 <div className="profile-label">Profile</div>
                                 <h1 className="profile-name">{user.email.split('@')[0]}</h1>
-                                <button className="btn-logout" onClick={()=>signOut(auth)}>Logout</button>
+                                <button className="btn-logout" onClick={()=>{
+                                    if(auth) signOut(auth);
+                                    setUser(null); setView('auth'); // Manual logout
+                                }}>Logout</button>
                             </div>
                         </div>
                         <div className="section-header">Your Library ({likedSongs.length})</div>
