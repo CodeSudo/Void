@@ -7,6 +7,7 @@ const Icons = {
   Home: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>,
   Search: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
   Library: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>,
+  Profile: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
   Play: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>,
   Pause: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>,
   SkipFwd: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>,
@@ -30,6 +31,42 @@ import { doc, setDoc, getDoc, updateDoc, arrayUnion, arrayRemove, collection, ad
 
 const API_BASE = "https://jio-codesudo.vercel.app/api";
 
+// --- MULTI-SOURCE ENGINE ---
+const APIs = {
+  saavn: {
+    name: 'JioSaavn',
+    search: async (query) => {
+      const res = await fetch(`${API_BASE}/search/songs?query=${encodeURIComponent(query)}`);
+      const data = await res.json();
+      return (data.data?.results || []).map(item => ({
+        id: item.id,
+        name: item.name,
+        primaryArtists: item.primaryArtists,
+        image: item.image,
+        downloadUrl: item.downloadUrl,
+        duration: item.duration,
+        source: 'saavn'
+      }));
+    }
+  },
+  itunes: {
+    name: 'Apple Music',
+    search: async (query) => {
+      const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=25`);
+      const data = await res.json();
+      return (data.results || []).map(item => ({
+        id: String(item.trackId),
+        name: item.trackName,
+        primaryArtists: item.artistName,
+        image: [{ url: item.artworkUrl100 ? item.artworkUrl100.replace('100x100bb', '500x500bb') : "" }],
+        downloadUrl: [{ url: item.previewUrl, quality: '320kbps' }],
+        duration: Math.floor((item.trackTimeMillis || 0) / 1000),
+        source: 'itunes'
+      }));
+    }
+  }
+};
+
 const MOODS = [
   { id: 'm1', name: 'Party', color: '#e57373', query: 'Party Hits' },
   { id: 'm2', name: 'Romance', color: '#f06292', query: 'Love Songs' },
@@ -45,7 +82,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [user, setUser] = useState(null);
   
-  // --- NEW: Audio Source Tracker ---
+  // Source State
   const [source, setSource] = useState('saavn');
   
   // Data
@@ -151,17 +188,14 @@ function App() {
     finally { setLoading(false); }
   };
 
-  // --- NEW: MULTI-SOURCE SEARCH ENGINE ---
   const doSearch = async () => {
     if(!searchQuery) return;
     setLoading(true); setTab('search');
     
-    // Clear out previous results
     setResSongs([]); setResAlbums([]); setResArtists([]); setResPlaylists([]);
     
     try {
       if (source === 'saavn') {
-          // ORIGINAL SAAVN SEARCH
           const [s, a, ar, p] = await Promise.all([
             fetch(`${API_BASE}/search/songs?query=${encodeURIComponent(searchQuery)}`).then(r=>r.json()),
             fetch(`${API_BASE}/search/albums?query=${encodeURIComponent(searchQuery)}`).then(r=>r.json()),
@@ -169,26 +203,9 @@ function App() {
             fetch(`${API_BASE}/search/playlists?query=${encodeURIComponent(searchQuery)}`).then(r=>r.json())
           ]);
           setResSongs(s?.data?.results || []); setResAlbums(a?.data?.results || []); setResArtists(ar?.data?.results || []); setResPlaylists(p?.data?.results || []);
-      
-      } else if (source === 'itunes') {
-          // APPLE MUSIC API SEARCH
-          const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(searchQuery)}&entity=song&limit=25`);
-          const data = await res.json();
-          
-          // Map Apple Music data to look exactly like Saavn data so the Player understands it
-          const mappedSongs = (data.results || []).map(item => ({
-              id: String(item.trackId),
-              name: item.trackName,
-              primaryArtists: item.artistName,
-              // Upgrade Apple's 100px thumbnail to 500px HD
-              image: [{ url: item.artworkUrl100 ? item.artworkUrl100.replace('100x100bb', '500x500bb') : "" }],
-              // Assign the 30s preview URL
-              downloadUrl: [{ url: item.previewUrl, quality: '320kbps' }],
-              duration: Math.floor((item.trackTimeMillis || 0) / 1000)
-          }));
-          
-          setResSongs(mappedSongs);
-          // Note: iTunes search is configured for songs only here, so albums/artists stay empty.
+      } else {
+          const songs = await APIs[source].search(searchQuery);
+          setResSongs(songs);
       }
     } catch(e) { 
         console.error(e); 
@@ -200,6 +217,10 @@ function App() {
 
   const fetchLyrics = async () => {
     if(!currentSong) return;
+    if(currentSong.source && currentSong.source !== 'saavn') {
+        toast('Lyrics are only available for JioSaavn tracks');
+        return;
+    }
     if(showLyrics) { setShowLyrics(false); return; }
     const toastId = toast.loading("Fetching lyrics...");
     try {
@@ -221,7 +242,6 @@ function App() {
     setCurrentSong(s);
     addToHistory(s);
     
-    // Safely find the download URL from the array we mapped
     const urlObj = s.downloadUrl?.find(u => u.quality === quality);
     const url = urlObj ? urlObj.url : (s.downloadUrl?.[s.downloadUrl.length-1]?.url || s.downloadUrl?.[0]?.url);
 
@@ -289,7 +309,15 @@ function App() {
             toast("Removed from Library", { icon: '💔' });
         }
     } else {
-        const clean = { id: String(item.id), name: getName(item), primaryArtists: getDesc(item), image: item.image||[], downloadUrl: item.downloadUrl||[], duration: item.duration||0 };
+        const clean = { 
+            id: String(item.id), 
+            name: getName(item), 
+            primaryArtists: getDesc(item), 
+            image: item.image||[], 
+            downloadUrl: item.downloadUrl||[], 
+            duration: item.duration||0,
+            source: item.source || 'saavn'
+        };
         setLikedSongs([...likedSongs, clean]);
         await updateDoc(userRef, { likedSongs: arrayUnion(clean) });
         toast.success("Added to Library");
@@ -309,7 +337,14 @@ function App() {
     if(!songToAdd) return;
     try {
         const ref = doc(db, `users/${user.uid}/playlists/${playlistId}`);
-        const clean = { id: String(songToAdd.id), name: getName(songToAdd), primaryArtists: getDesc(songToAdd), image: songToAdd.image||[], downloadUrl: songToAdd.downloadUrl||[] };
+        const clean = { 
+            id: String(songToAdd.id), 
+            name: getName(songToAdd), 
+            primaryArtists: getDesc(songToAdd), 
+            image: songToAdd.image||[], 
+            downloadUrl: songToAdd.downloadUrl||[],
+            source: songToAdd.source || 'saavn'
+        };
         await updateDoc(ref, { songs: arrayUnion(clean) });
         toast.success("Added to Playlist"); setShowAddToPlaylistModal(false);
     } catch(e) { toast.error("Failed"); }
@@ -510,7 +545,6 @@ function App() {
         <div className="main-content">
             <div className="header">
                 <div className="search-box">
-                    {/* --- THE NEW SOURCE DROPDOWN --- */}
                     <select 
                       value={source} 
                       onChange={(e) => setSource(e.target.value)}
@@ -520,18 +554,55 @@ function App() {
                       <option value="itunes">Apple Music</option>
                     </select>
                     <div style={{width: 1, height: 20, background: '#333', marginRight: 8}}></div>
-                    {/* ----------------------------- */}
 
                     <Icons.Search/>
-                    <input placeholder="Search songs, artists, albums..." value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} onKeyDown={e=>e.key==='Enter'&&doSearch()}/>
+                    <input placeholder={`Search on ${APIs[source].name}...`} value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} onKeyDown={e=>e.key==='Enter'&&doSearch()}/>
                 </div>
-                <div className="user-pill" onClick={()=>signOut(auth)}>
+                <div className="user-pill" onClick={() => setTab('profile')}>
                     <div className="avatar">{user.email[0].toUpperCase()}</div>
-                    <span>Logout</span>
+                    <span>Profile</span>
                 </div>
             </div>
 
             <div className="scroll-area">
+                
+                {/* PROFILE VIEW */}
+                {tab === 'profile' && (
+                    <div className="profile-view">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '24px', background: 'var(--bg-card)', padding: '40px', borderRadius: '24px', marginBottom: '40px', border: '1px solid var(--border)', flexWrap: 'wrap' }}>
+                            <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: 'var(--primary)', color: 'var(--on-primary)', fontSize: '2.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
+                                {user.email[0].toUpperCase()}
+                            </div>
+                            <div style={{ flex: 1, minWidth: '200px' }}>
+                                <h1 style={{ fontSize: '2rem', marginBottom: '8px' }}>My Account</h1>
+                                <p style={{ color: 'var(--text-sec)' }}>{user.email}</p>
+                            </div>
+                            <button 
+                                onClick={() => signOut(auth)} 
+                                style={{ padding: '12px 24px', background: '#e57373', color: 'white', border: 'none', borderRadius: '50px', cursor: 'pointer', fontWeight: 'bold', fontSize: '1rem' }}
+                            >
+                                Logout
+                            </button>
+                        </div>
+
+                        <div className="section-header">Your Stats</div>
+                        <div className="grid">
+                            <div className="card" style={{ textAlign: 'center', padding: '30px', cursor: 'default' }}>
+                                <h2 style={{ fontSize: '3rem', color: 'var(--primary)', margin: '10px 0' }}>{likedSongs.length}</h2>
+                                <p style={{ color: 'var(--text-sec)' }}>Liked Songs</p>
+                            </div>
+                            <div className="card" style={{ textAlign: 'center', padding: '30px', cursor: 'default' }}>
+                                <h2 style={{ fontSize: '3rem', color: 'var(--primary)', margin: '10px 0' }}>{userPlaylists.length}</h2>
+                                <p style={{ color: 'var(--text-sec)' }}>Custom Playlists</p>
+                            </div>
+                            <div className="card" style={{ textAlign: 'center', padding: '30px', cursor: 'default' }}>
+                                <h2 style={{ fontSize: '3rem', color: 'var(--primary)', margin: '10px 0' }}>{history.length}</h2>
+                                <p style={{ color: 'var(--text-sec)' }}>Recently Played</p>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* DETAILS */}
                 {tab === 'details' && selectedItem && (
                     <div className="details-view">
@@ -573,10 +644,10 @@ function App() {
                     <div className="section">
                         {resSongs.length > 0 && (
                             <>
-                                <div className="section-header">Songs</div>
+                                <div className="section-header">Songs from {APIs[source].name}</div>
                                 <div className="grid">
                                     {resSongs.map(s => (
-                                        <div key={s.id} className="card" onClick={()=>handleCardClick(s, 'song')}>
+                                        <div key={s.id} className="card" onClick={()=>playSong(resSongs, resSongs.indexOf(s))}>
                                             <img src={getImg(s.image)} alt=""/>
                                             <h3>{getName(s)}</h3>
                                             <p>{getDesc(s)}</p>
@@ -750,7 +821,7 @@ function App() {
                             </div>
                         </div>
 
-                        {/* NEW: 6.5 Top Artists */}
+                        {/* 7. Top Artists */}
                         <div className="section">
                             <div className="section-header">Top Artists</div>
                             <div className="horizontal-scroll">
@@ -764,7 +835,7 @@ function App() {
                             </div>
                         </div>
 
-                        {/* 7. Editorial */}
+                        {/* 8. Editorial */}
                         <div className="section">
                             <div className="section-header">Editorial Picks</div>
                             <div className="horizontal-scroll">
@@ -778,7 +849,7 @@ function App() {
                             </div>
                         </div>
 
-                        {/* 8. Fresh Hits */}
+                        {/* 9. Fresh Hits */}
                         <div className="section">
                             <div className="section-header">Fresh Hits</div>
                             <div className="horizontal-scroll">
@@ -792,7 +863,7 @@ function App() {
                             </div>
                         </div>
 
-                        {/* 9. 90s Magic */}
+                        {/* 10. 90s Magic */}
                         <div className="section">
                             <div className="section-header">Best of 90s</div>
                             <div className="horizontal-scroll">
@@ -806,7 +877,7 @@ function App() {
                             </div>
                         </div>
 
-                        {/* 10. Hindi Pop */}
+                        {/* 11. Hindi Pop */}
                         <div className="section">
                             <div className="section-header">New Hindi Pop</div>
                             <div className="horizontal-scroll">
@@ -901,6 +972,7 @@ function App() {
             <div className={`nav-tab ${tab==='home'?'active':''}`} onClick={()=>setTab('home')}><Icons.Home/> Home</div>
             <div className={`nav-tab ${tab==='search'?'active':''}`} onClick={()=>setTab('search')}><Icons.Search/> Search</div>
             <div className={`nav-tab ${tab==='library'?'active':''}`} onClick={()=>setTab('library')}><Icons.Library/> Library</div>
+            <div className={`nav-tab ${tab==='profile'?'active':''}`} onClick={()=>setTab('profile')}><Icons.Profile/> Profile</div>
         </div>
     </div>
   );
