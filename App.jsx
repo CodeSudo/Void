@@ -31,7 +31,6 @@ import { doc, setDoc, getDoc, updateDoc, arrayUnion, arrayRemove, collection, ad
 
 const API_BASE = "https://jio-codesudo.vercel.app/api";
 
-// --- MULTI-SOURCE ENGINE ---
 // --- MULTI-SOURCE API ENGINE ---
 const APIs = {
   saavn: {
@@ -66,11 +65,11 @@ const APIs = {
       }));
     }
   },
-soundcloud: {
+  soundcloud: {
     name: 'SoundCloud',
     token: null, 
-    clientId: 'Vpc0K04zyHIKYXXc1fdF6qnT9RVxEalM',         // <--- PASTE HERE
-    clientSecret: 'AQl4lr4ZL9bZ5M9aXgySocPCeHOrHj0J', // <--- PASTE HERE
+    clientId: 'PASTE_YOUR_CLIENT_ID_HERE',         // <--- PASTE HERE
+    clientSecret: 'PASTE_YOUR_CLIENT_SECRET_HERE', // <--- PASTE HERE
     
     auth: async function() {
       if (this.token) return this.token; 
@@ -102,43 +101,15 @@ soundcloud: {
         image: [{ url: item.artwork_url ? item.artwork_url.replace('large', 't500x500') : "https://via.placeholder.com/150" }],
         duration: Math.floor(item.duration / 1000),
         source: 'soundcloud'
-        // Notice we removed downloadUrl so the app knows to fetch the live stream
       }));
     },
     
-    // NEW: Background stream resolver
     getStreamUrl: async function(id) {
       const token = await this.auth();
-      // Fetch automatically follows SoundCloud's redirect to their secure AWS CDN
       const res = await fetch(`https://api.soundcloud.com/tracks/${id}/stream`, {
         headers: { 'Authorization': `OAuth ${token}` }
       });
-      // Return the final raw MP3 URL that doesn't need headers!
       return res.url; 
-    }
-  },
-
-    // 2. Search and Format
-    search: async function(query) {
-      const token = await this.auth();
-      // Fetch tracks using your official OAuth Token
-      const res = await fetch(`https://api.soundcloud.com/tracks?q=${encodeURIComponent(query)}&limit=25`, {
-        headers: { 'Authorization': `OAuth ${token}` }
-      });
-      const data = await res.json();
-      
-      // Filter out tracks that artists have locked, and map to our Player's format
-      return (data || []).filter(item => item.streamable).map(item => ({
-        id: item.id,
-        name: item.title,
-        primaryArtists: item.user?.username || "Unknown Artist",
-        // Upgrade low-res artwork to 500x500
-        image: [{ url: item.artwork_url ? item.artwork_url.replace('large', 't500x500') : "https://via.placeholder.com/150" }],
-        // Provide the direct MP3 stream URL
-        downloadUrl: [{ url: `${item.stream_url}?client_id=${this.clientId}`, quality: '320kbps' }],
-        duration: Math.floor(item.duration / 1000),
-        source: 'soundcloud'
-      }));
     }
   }
 };
@@ -280,6 +251,7 @@ function App() {
           ]);
           setResSongs(s?.data?.results || []); setResAlbums(a?.data?.results || []); setResArtists(ar?.data?.results || []); setResPlaylists(p?.data?.results || []);
       } else {
+          // Dynamic API router for Apple Music and SoundCloud
           const songs = await APIs[source].search(searchQuery);
           setResSongs(songs);
       }
@@ -310,8 +282,7 @@ function App() {
     } catch(e) { toast.error("Error loading lyrics", { id: toastId }); }
   };
 
-  // --- PLAYER LOGIC ---
-// --- ASYNC PLAYER LOGIC ---
+  // --- ASYNC PLAYER LOGIC (CRUCIAL FOR SOUNDCLOUD) ---
   const playSong = async (list, idx) => {
     if(!list || !list[idx]) return;
     setQueue(list); setQIndex(idx);
@@ -640,6 +611,7 @@ function App() {
         <div className="main-content">
             <div className="header">
                 <div className="search-box">
+                    {/* --- THE MULTI-SOURCE DROPDOWN --- */}
                     <select 
                       value={source} 
                       onChange={(e) => setSource(e.target.value)}
