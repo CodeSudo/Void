@@ -7,6 +7,7 @@ const Icons = {
   Home: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>,
   Search: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
   Library: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>,
+  Profile: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
   Play: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>,
   Pause: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>,
   SkipFwd: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>,
@@ -525,15 +526,51 @@ function App() {
                     <Icons.Search/>
                     <input placeholder="Search songs, artists, albums..." value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} onKeyDown={e=>e.key==='Enter'&&doSearch()}/>
                 </div>
-                <div className="user-pill" onClick={()=>signOut(auth)}>
+                <div className="user-pill" onClick={() => setTab('profile')}>
                     <div className="avatar">{user.email[0].toUpperCase()}</div>
-                    <span>Logout</span>
+                    <span>Profile</span>
                 </div>
             </div>
 
             <div className="scroll-area">
                 {/* DETAILS */}
                 {tab === 'details' && selectedItem && (
+      {/* PROFILE VIEW */}
+{tab === 'profile' && (
+    <div className="profile-view">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '24px', background: 'var(--bg-card)', padding: '40px', borderRadius: '24px', marginBottom: '40px', border: '1px solid var(--border)' }}>
+            <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: 'var(--primary)', color: 'var(--on-primary)', fontSize: '2.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
+                {user.email[0].toUpperCase()}
+            </div>
+            <div style={{ flex: 1 }}>
+                <h1 style={{ fontSize: '2rem', marginBottom: '8px' }}>My Account</h1>
+                <p style={{ color: 'var(--text-sec)' }}>{user.email}</p>
+            </div>
+            <button 
+                onClick={() => signOut(auth)} 
+                style={{ padding: '12px 24px', background: '#e57373', color: 'white', border: 'none', borderRadius: '50px', cursor: 'pointer', fontWeight: 'bold', fontSize: '1rem' }}
+            >
+                Logout
+            </button>
+        </div>
+
+        <div className="section-header">Your Stats</div>
+        <div className="grid">
+            <div className="card" style={{ textAlign: 'center', padding: '30px' }}>
+                <h2 style={{ fontSize: '3rem', color: 'var(--primary)', marginBottom: '10px' }}>{likedSongs.length}</h2>
+                <p style={{ color: 'var(--text-sec)' }}>Liked Songs</p>
+            </div>
+            <div className="card" style={{ textAlign: 'center', padding: '30px' }}>
+                <h2 style={{ fontSize: '3rem', color: 'var(--primary)', marginBottom: '10px' }}>{userPlaylists.length}</h2>
+                <p style={{ color: 'var(--text-sec)' }}>Custom Playlists</p>
+            </div>
+            <div className="card" style={{ textAlign: 'center', padding: '30px' }}>
+                <h2 style={{ fontSize: '3rem', color: 'var(--primary)', marginBottom: '10px' }}>{history.length}</h2>
+                <p style={{ color: 'var(--text-sec)' }}>Recently Played</p>
+            </div>
+        </div>
+    </div>
+)}
                     <div className="details-view">
                         <button className="btn-back" onClick={()=>setTab('home')}>
                             <Icons.Back /> Back
@@ -897,11 +934,13 @@ function App() {
         </div>
 
         {/* BOTTOM NAV (Mobile) */}
-        <div className="bottom-nav">
-            <div className={`nav-tab ${tab==='home'?'active':''}`} onClick={()=>setTab('home')}><Icons.Home/> Home</div>
-            <div className={`nav-tab ${tab==='search'?'active':''}`} onClick={()=>setTab('search')}><Icons.Search/> Search</div>
-            <div className={`nav-tab ${tab==='library'?'active':''}`} onClick={()=>setTab('library')}><Icons.Library/> Library</div>
-        </div>
+{/* BOTTOM NAV (Mobile) */}
+<div className="bottom-nav">
+    <div className={`nav-tab ${tab==='home'?'active':''}`} onClick={()=>setTab('home')}><Icons.Home/> Home</div>
+    <div className={`nav-tab ${tab==='search'?'active':''}`} onClick={()=>setTab('search')}><Icons.Search/> Search</div>
+    <div className={`nav-tab ${tab==='library'?'active':''}`} onClick={()=>setTab('library')}><Icons.Library/> Library</div>
+    <div className={`nav-tab ${tab==='profile'?'active':''}`} onClick={()=>setTab('profile')}><Icons.Profile/> Profile</div>
+</div>
     </div>
   );
 }
