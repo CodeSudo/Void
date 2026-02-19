@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import './App.css';
+import toast, { Toaster } from 'react-hot-toast';
 
 // --- API CONFIG ---
 const API_BASE = "https://saavn.sumit.co/api";
@@ -22,7 +23,11 @@ const ICONS = {
   SkipBack: () => <span style={{fontSize:'1.5rem'}}>⏮</span>,
   Profile: () => <span style={{fontSize:'1.5rem'}}>👤</span>,
   Heart: () => <span>♥</span>,
-  Plus: () => <span>+</span>
+  Plus: () => <span>+</span>,
+  Shuffle: () => <span>🔀</span>,
+  Repeat: () => <span>🔁</span>,
+  List: () => <span>📜</span>,
+  Mic: () => <span>🎤</span>
 };
 
 function App() {
@@ -41,14 +46,14 @@ function App() {
   const [currentSong, setCurrentSong] = useState(null);
   const [duration, setDuration] = useState(0);
   const [progress, setProgress] = useState(0);
+  const [isShuffle, setIsShuffle] = useState(false);
 
   // --- DATA FETCHING ---
   useEffect(() => {
-    // Simple fetch without Promise.all to reduce complexity risks
     fetch(`${API_BASE}/search/songs?query=Top 50&limit=15`)
       .then(r => r.json())
       .then(data => setHomeData(prev => ({ ...prev, trending: data.data.results || [] })))
-      .catch(e => console.error("Fetch error", e));
+      .catch(e => console.error(e));
 
     fetch(`${API_BASE}/search/playlists?query=Top Charts&limit=15`)
       .then(r => r.json())
@@ -59,45 +64,87 @@ function App() {
   const doSearch = async () => {
     if(!searchQuery) return;
     setTab('search');
+    const toastId = toast.loading('Searching...');
     try {
       const res = await fetch(`${API_BASE}/search/songs?query=${encodeURIComponent(searchQuery)}`);
       const data = await res.json();
       setResSongs(data.data?.results || []);
-    } catch(e) { console.error(e); }
+      toast.dismiss(toastId);
+    } catch(e) { 
+        toast.error("Search failed");
+        toast.dismiss(toastId);
+    }
   };
 
   // --- PLAYER LOGIC ---
   const playSong = (song) => {
     setCurrentSong(song);
-    // Find audio URL
     const url = song.downloadUrl?.[song.downloadUrl.length-1]?.url || song.downloadUrl?.[0]?.url;
+    
     if(url) {
       audioRef.current.src = url;
-      audioRef.current.play().catch(e => console.error("Play error:", e));
-      setIsPlaying(true);
+      audioRef.current.play()
+        .then(() => {
+            setIsPlaying(true);
+            toast.success(`Playing: ${getName(song)}`, {
+                style: { background: '#333', color: '#fff' },
+                icon: '🎵'
+            });
+        })
+        .catch(e => toast.error("Playback failed"));
     } else {
-      alert("Audio not available for this song");
+      toast.error("Audio not available");
     }
   };
 
   const togglePlay = () => {
-    if(audioRef.current.paused) { audioRef.current.play(); setIsPlaying(true); } 
-    else { audioRef.current.pause(); setIsPlaying(false); }
+    if(audioRef.current.paused) { 
+        audioRef.current.play(); 
+        setIsPlaying(true); 
+    } else { 
+        audioRef.current.pause(); 
+        setIsPlaying(false); 
+    }
+  };
+
+  const toggleShuffle = () => {
+      setIsShuffle(!isShuffle);
+      toast(!isShuffle ? "Shuffle On" : "Shuffle Off", { icon: '🔀' });
+  };
+
+  const toggleLike = (song) => {
+      const exists = likedSongs.find(s => s.id === song.id);
+      if(exists) {
+          setLikedSongs(likedSongs.filter(s => s.id !== song.id));
+          toast("Removed from Library", { icon: '💔' });
+      } else {
+          setLikedSongs([...likedSongs, song]);
+          toast.success("Added to Library");
+      }
   };
 
   useEffect(() => {
     const a = audioRef.current;
     const update = () => { setProgress(a.currentTime); setDuration(a.duration||0); };
+    const end = () => setIsPlaying(false);
     a.addEventListener('timeupdate', update);
-    return () => a.removeEventListener('timeupdate', update);
+    a.addEventListener('ended', end);
+    return () => { 
+        a.removeEventListener('timeupdate', update);
+        a.removeEventListener('ended', end);
+    };
   }, []);
 
   // --- HELPERS ---
   const getImg = (i) => (Array.isArray(i) ? i[i.length-1]?.url : i) || "https://via.placeholder.com/150";
   const getName = (i) => i?.name || i?.title || "Unknown";
+  const getDesc = (i) => i?.primaryArtists || i?.description || "";
 
   return (
     <div className="app-layout">
+      {/* Toast Container */}
+      <Toaster position="bottom-center" toastOptions={{style:{background:'#333', color:'#fff', borderRadius:'20px'}}}/>
+
       {/* SIDEBAR */}
       <div className="sidebar">
         <div className="brand">Aura.</div>
@@ -124,12 +171,25 @@ function App() {
                         <h1>{homeData.trending[0] ? getName(homeData.trending[0]) : "Trending"}</h1>
                         <button style={{padding:'10px 20px', borderRadius:'20px', border:'none', marginTop:'10px', cursor:'pointer'}} onClick={()=>playSong(homeData.trending[0])}>Play Now</button>
                     </div>
-                    <div className="section-header">Trending</div>
+                    
+                    <div className="section-header">Moods</div>
+                    <div className="horizontal-scroll">
+                        {MOODS.map(m => (
+                            <div key={m.id} className="card" style={{minWidth:'140px', background:m.color, display:'flex', alignItems:'center', justifyContent:'center'}} onClick={()=>toast(`Selected Mood: ${m.name}`)}>
+                                <h3 style={{color:'white'}}>{m.name}</h3>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="section-header" style={{marginTop:30}}>Trending</div>
                     <div className="horizontal-scroll">
                         {homeData.trending.map(s => (
                             <div key={s.id} className="card" onClick={()=>playSong(s)}>
                                 <img src={getImg(s.image)} alt=""/>
                                 <h3>{getName(s)}</h3>
+                                <div className="card-actions">
+                                    <button className="btn-card-action" onClick={(e)=>{e.stopPropagation(); toggleLike(s)}}><ICONS.Heart/></button>
+                                </div>
                             </div>
                         ))}
                     </div>
@@ -151,6 +211,7 @@ function App() {
                         <div key={s.id} className="card" onClick={()=>playSong(s)}>
                             <img src={getImg(s.image)} alt=""/>
                             <h3>{getName(s)}</h3>
+                            <p>{getDesc(s)}</p>
                         </div>
                     ))}
                 </div>
@@ -162,7 +223,12 @@ function App() {
                     <p>Logged in as: {user.email}</p>
                     <div className="section-header" style={{marginTop:40}}>Liked Songs</div>
                     <div className="grid">
-                        {likedSongs.map(s => <div key={s.id} className="card">{getName(s)}</div>)}
+                        {likedSongs.map(s => (
+                            <div key={s.id} className="card" onClick={()=>playSong(s)}>
+                                <img src={getImg(s.image)} alt=""/>
+                                <h3>{getName(s)}</h3>
+                            </div>
+                        ))}
                         {likedSongs.length === 0 && <p>No liked songs yet.</p>}
                     </div>
                 </div>
@@ -180,12 +246,22 @@ function App() {
                 <img src={getImg(currentSong.image)} alt=""/>
                 <div className="p-info">
                     <h4 style={{color:'white', margin:0}}>{getName(currentSong)}</h4>
+                    <p style={{color:'#aaa', margin:0, fontSize:'0.8rem'}}>{getDesc(currentSong)}</p>
                 </div>
             </div>
             <div className="p-center">
-                <button className="btn-icon" onClick={togglePlay}>{isPlaying ? <ICONS.Pause/> : <ICONS.Play/>}</button>
+                <div className="p-controls">
+                    <button className="btn-icon" onClick={toggleShuffle} style={{color: isShuffle ? '#d4acfb' : '#aaa'}}><ICONS.Shuffle/></button>
+                    <button className="btn-icon"><ICONS.SkipBack/></button>
+                    <button className="btn-play" onClick={togglePlay}>{isPlaying ? <ICONS.Pause/> : <ICONS.Play/>}</button>
+                    <button className="btn-icon"><ICONS.SkipFwd/></button>
+                    <button className="btn-icon"><ICONS.Repeat/></button>
+                </div>
             </div>
-            <div className="p-right"></div>
+            <div className="p-right">
+                <button className="btn-icon" onClick={()=>toast('Lyrics feature coming soon')}><ICONS.Mic/></button>
+                <button className="btn-icon" onClick={()=>toast('Queue feature coming soon')}><ICONS.List/></button>
+            </div>
             
             <div className="mobile-controls" style={{display:'none'}}>
                <button className="btn-play-mobile" onClick={togglePlay}>{isPlaying ? <ICONS.Pause/> : <ICONS.Play/>}</button>
@@ -195,9 +271,10 @@ function App() {
 
       {/* MOBILE NAV */}
       <div className="bottom-nav">
-        <div className="nav-tab" onClick={()=>setTab('home')}><ICONS.Home/></div>
-        <div className="nav-tab" onClick={()=>setTab('search')}><ICONS.Search/></div>
-        <div className="nav-tab" onClick={()=>setTab('profile')}><ICONS.Profile/></div>
+        <div className={`nav-tab ${tab==='home'?'active':''}`} onClick={()=>setTab('home')}><ICONS.Home/></div>
+        <div className={`nav-tab ${tab==='search'?'active':''}`} onClick={()=>setTab('search')}><ICONS.Search/></div>
+        <div className={`nav-tab ${tab==='library'?'active':''}`} onClick={()=>setTab('library')}><ICONS.Library/></div>
+        <div className={`nav-tab ${tab==='profile'?'active':''}`} onClick={()=>setTab('profile')}><ICONS.Profile/></div>
       </div>
     </div>
   );
