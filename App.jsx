@@ -66,15 +66,14 @@ const APIs = {
       }));
     }
   },
-  soundcloud: {
+soundcloud: {
     name: 'SoundCloud',
-    token: null, // We will store your generated access token here
+    token: null, 
     clientId: 'Vpc0K04zyHIKYXXc1fdF6qnT9RVxEalM',         // <--- PASTE HERE
     clientSecret: 'AQl4lr4ZL9bZ5M9aXgySocPCeHOrHj0J', // <--- PASTE HERE
     
-    // 1. Authenticate securely with SoundCloud
     auth: async function() {
-      if (this.token) return this.token; // Use existing token if we already logged in
+      if (this.token) return this.token; 
       const res = await fetch('https://api.soundcloud.com/oauth2/token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -88,6 +87,36 @@ const APIs = {
       this.token = data.access_token;
       return this.token;
     },
+
+    search: async function(query) {
+      const token = await this.auth();
+      const res = await fetch(`https://api.soundcloud.com/tracks?q=${encodeURIComponent(query)}&limit=25`, {
+        headers: { 'Authorization': `OAuth ${token}` }
+      });
+      const data = await res.json();
+      
+      return (data || []).filter(item => item.streamable).map(item => ({
+        id: item.id,
+        name: item.title,
+        primaryArtists: item.user?.username || "Unknown Artist",
+        image: [{ url: item.artwork_url ? item.artwork_url.replace('large', 't500x500') : "https://via.placeholder.com/150" }],
+        duration: Math.floor(item.duration / 1000),
+        source: 'soundcloud'
+        // Notice we removed downloadUrl so the app knows to fetch the live stream
+      }));
+    },
+    
+    // NEW: Background stream resolver
+    getStreamUrl: async function(id) {
+      const token = await this.auth();
+      // Fetch automatically follows SoundCloud's redirect to their secure AWS CDN
+      const res = await fetch(`https://api.soundcloud.com/tracks/${id}/stream`, {
+        headers: { 'Authorization': `OAuth ${token}` }
+      });
+      // Return the final raw MP3 URL that doesn't need headers!
+      return res.url; 
+    }
+  },
 
     // 2. Search and Format
     search: async function(query) {
@@ -282,15 +311,34 @@ function App() {
   };
 
   // --- PLAYER LOGIC ---
-  const playSong = (list, idx) => {
+// --- ASYNC PLAYER LOGIC ---
+  const playSong = async (list, idx) => {
     if(!list || !list[idx]) return;
     setQueue(list); setQIndex(idx);
     const s = list[idx];
     setCurrentSong(s);
     addToHistory(s);
     
-    const urlObj = s.downloadUrl?.find(u => u.quality === quality);
-    const url = urlObj ? urlObj.url : (s.downloadUrl?.[s.downloadUrl.length-1]?.url || s.downloadUrl?.[0]?.url);
+    let url = "";
+
+    // 1. Resolve SoundCloud Streams dynamically
+    if (s.source === 'soundcloud') {
+        const toastId = toast.loading("Loading SoundCloud Stream...");
+        try {
+            url = await APIs.soundcloud.getStreamUrl(s.id);
+            toast.dismiss(toastId);
+            if (!url) throw new Error("No stream found");
+        } catch (e) {
+            toast.dismiss(toastId);
+            toast.error("Stream blocked by artist (SoundCloud Go+ only).");
+            return;
+        }
+    } 
+    // 2. Standard JioSaavn/Apple Music URLs
+    else if (s.downloadUrl && Array.isArray(s.downloadUrl)) {
+        const urlObj = s.downloadUrl.find(u => u.quality === quality);
+        url = urlObj ? urlObj.url : (s.downloadUrl[s.downloadUrl.length-1]?.url || s.downloadUrl[0]?.url);
+    }
 
     if(url) {
         if(audioRef.current.src !== url) {
