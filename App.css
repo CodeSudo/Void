@@ -178,103 +178,44 @@ body { background-color: var(--bg-main); color: var(--text-main); height: 100vh;
   .main-content { margin-left: 0; width: 100%; height: 100vh; padding-bottom: 0; }
   
   /* --- MOBILE HEADER REDESIGN --- */
-  /* We use CSS Grid to inject a logo and organize the search/profile nicely */
   .header { 
-    height: auto; 
-    padding: 16px; 
-    display: grid;
-    grid-template-columns: 1fr auto; /* Logo left, Profile right */
-    grid-template-rows: auto auto;   /* Top row, Bottom row (Search) */
-    gap: 16px;
-    align-items: center;
+    height: auto; padding: 16px; display: grid;
+    grid-template-columns: 1fr auto; grid-template-rows: auto auto; gap: 16px; align-items: center;
   }
-  
-  /* CSS-Only Logo Injection for Mobile */
-  .header::before {
-    content: "Void.";
-    grid-column: 1;
-    grid-row: 1;
-    font-size: 1.8rem;
-    font-weight: 800;
-    color: var(--primary);
-  }
-
-  .user-pill { 
-    grid-column: 2; 
-    grid-row: 1; 
-    padding: 4px 12px 4px 4px; 
-    background: transparent; 
-    border: 1px solid var(--border); 
-  }
-  .user-pill span { display: none; } /* Hide text, show only avatar */
-
-  .search-box { 
-    grid-column: 1 / -1; /* Span entire bottom row */
-    grid-row: 2;
-    width: 100%; 
-    padding: 10px 16px;
-  }
+  .header::before { content: "Void."; grid-column: 1; grid-row: 1; font-size: 1.8rem; font-weight: 800; color: var(--primary); }
+  .user-pill { grid-column: 2; grid-row: 1; padding: 4px 12px 4px 4px; background: transparent; border: 1px solid var(--border); }
+  .user-pill span { display: none; }
+  .search-box { grid-column: 1 / -1; grid-row: 2; width: 100%; padding: 10px 16px; }
   .search-box select { max-width: 100px; font-size: 0.8rem; }
   
   /* Scroll Content Spacing */
-  .scroll-area { padding: 10px 16px 170px 16px; } /* Huge padding to clear bottom nav & floating player */
-  
+  .scroll-area { padding: 10px 16px 170px 16px; } 
   .hero { padding: 24px; border-radius: 16px; }
   .hero h1 { font-size: 2rem; }
   
-  /* Adjust Grids to fit phones */
- /* Adjust Grids to fit phones - SMALLER & CLEANER TILES */
-/* ==================================
+  /* ==================================
      Adjust Grids & Scrolls for Phones
      ================================== */
-  
   /* 1. The Library / Search Grid */
-  .grid { 
-    grid-template-columns: repeat(auto-fill, minmax(105px, 1fr)); 
-    gap: 12px; 
-  }
-  .grid .card { 
-    min-width: 0; 
-    width: 100%; 
-    padding: 10px; 
-    border-radius: 12px;
-  }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(105px, 1fr)); gap: 12px; }
+  .grid .card { min-width: 0; width: 100%; padding: 10px; border-radius: 12px; }
 
-  /* 2. The Homepage Horizontal Scroll (BRINGS ICONS BACK!) */
-  .horizontal-scroll .card {
-    min-width: 130px; /* Gives the homepage cards their size back */
-    width: 130px;
-    padding: 10px;
-    border-radius: 12px;
-  }
+  /* 2. The Homepage Horizontal Scroll */
+  .horizontal-scroll .card { min-width: 130px; width: 130px; padding: 10px; border-radius: 12px; }
 
   /* 3. Universal Mobile Card Tweaks */
-  .card img { 
-    margin-bottom: 8px; 
-    border-radius: 8px; 
-  }
-  .card h3 { 
-    font-size: 0.85rem; 
-    margin-bottom: 2px;
-  }
-  .card p { 
-    font-size: 0.75rem; 
-  }
-  .card-actions { 
-    opacity: 1; 
-    bottom: 8px; 
-    right: 8px; 
-  } 
-  .btn-card-action {
-    width: 28px; 
-    height: 28px; 
-  }
-  
+  .card img { margin-bottom: 8px; border-radius: 8px; }
+  .card h3 { font-size: 0.85rem; margin-bottom: 2px; }
+  .card p { font-size: 0.75rem; }
+  .card-actions { opacity: 1; bottom: 8px; right: 8px; } 
+  .btn-card-action { width: 28px; height: 28px; }
+  .btn-card-action svg { width: 16px; height: 16px; } /* Ensures icons fit perfectly */
+
   /* Details Screen */
   .details-header { flex-direction: column; align-items: center; text-align: center; gap: 20px; }
   .details-art { width: 200px; height: 200px; }
   .details-meta h1 { font-size: 1.8rem; }
-  .track-num { display: none; } /* Hide track numbers to save space */
+  .track-num { display: none; }
   
   /* Profile View Adjustments */
   .profile-view > div:first-child { flex-direction: column; text-align: center; padding: 24px; }
@@ -283,60 +224,22 @@ body { background-color: var(--bg-main); color: var(--text-main); height: 100vh;
      MOBILE FLOATING PLAYER (FIXED)
      ================================== */
   .player-bar { 
-    left: 10px; right: 10px; 
-    bottom: 80px; /* Hovers right above the bottom nav */
-    height: 65px; 
-    padding: 0 12px; 
-    border-radius: 12px; 
-    border: 1px solid rgba(255,255,255,0.15);
-    background: rgba(24, 24, 24, 0.98); 
-    box-shadow: 0 15px 35px rgba(0,0,0,0.6);
-    display: flex; 
-    flex-direction: row; 
-    align-items: center; 
-    justify-content: space-between;
-    flex-wrap: nowrap; /* CRITICAL */
-    z-index: 300;
+    left: 10px; right: 10px; bottom: 80px; height: 65px; padding: 0 12px; 
+    border-radius: 12px; border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(24, 24, 24, 0.98); box-shadow: 0 15px 35px rgba(0,0,0,0.6);
+    display: flex; flex-direction: row; align-items: center; justify-content: space-between;
+    flex-wrap: nowrap; z-index: 300;
   }
-  
-  /* Track Info - Min-Width 0 stops text from breaking Flexbox */
-  .p-track { 
-    flex: 1; 
-    min-width: 0; /* CRITICAL BUG FIX */
-    width: auto;
-    margin-right: 12px;
-  }
+  .p-track { flex: 1; min-width: 0; width: auto; margin-right: 12px; }
   .p-track img { width: 44px; height: 44px; border-radius: 8px; }
+  .p-center { flex: 0 0 auto; width: auto; align-items: center; justify-content: center; }
   
-  .p-center { 
-    flex: 0 0 auto; /* Protects buttons from getting squished */
-    width: auto; 
-    align-items: center; 
-    justify-content: center; 
-  }
-  
-  /* Isolate controls */
   .p-controls { gap: 16px; display: flex; align-items: center; }
-  
-  /* Hide Desktop Icons */
   .p-controls .btn-icon, .p-right { display: none !important; } 
+  .p-controls .btn-play { display: flex !important; width: 44px; height: 44px; font-size: 1.2rem; }
+  .p-controls button:nth-child(4) { display: flex !important; font-size: 1.4rem; color: var(--text-main); }
   
-  /* Reveal ONLY Play and Next */
-  .p-controls .btn-play { 
-    display: flex !important; 
-    width: 44px; height: 44px; 
-    font-size: 1.2rem; 
-  }
-  .p-controls button:nth-child(4) { 
-    display: flex !important; /* Forces SkipFwd to show */
-    font-size: 1.4rem; 
-    color: var(--text-main);
-  }
-  
-  /* Make Progress Bar a tiny sliver at the top of the floating player */
-  .progress-container {
-    position: absolute; top: 0; left: 0; right: 0; width: 100%; height: 3px; gap: 0; border-radius: 12px 12px 0 0; overflow: hidden;
-  }
+  .progress-container { position: absolute; top: 0; left: 0; right: 0; width: 100%; height: 3px; gap: 0; border-radius: 12px 12px 0 0; overflow: hidden; }
   .progress-container span { display: none; }
   .progress-rail { height: 3px; background: rgba(255,255,255,0.1); border-radius: 0; }
   .progress-fill { background: var(--primary); }
@@ -346,11 +249,9 @@ body { background-color: var(--bg-main); color: var(--text-main); height: 100vh;
      ================================== */
   .bottom-nav { 
     position: fixed; bottom: 0; left: 0; right: 0; height: 70px; 
-    background: var(--bg-main); 
-    display: flex; justify-content: space-around; 
-    align-items: center; z-index: 200; 
-    border-top: 1px solid var(--border); 
-    padding-bottom: env(safe-area-inset-bottom, 10px); /* For iPhones */
+    background: var(--bg-main); display: flex; justify-content: space-around; 
+    align-items: center; z-index: 200; border-top: 1px solid var(--border); 
+    padding-bottom: env(safe-area-inset-bottom, 10px); 
   }
   .nav-tab { 
     display: flex; flex-direction: column; align-items: center; 
@@ -360,7 +261,6 @@ body { background-color: var(--bg-main); color: var(--text-main); height: 100vh;
   .nav-tab svg { width: 22px; height: 22px; }
   .nav-tab.active { color: var(--primary); }
   
-  /* Full Screen Overlays */
   .lyrics-overlay { bottom: 0; top: 0; }
   .queue-sidebar { width: 100%; bottom: 0; top: 0; }
 }
