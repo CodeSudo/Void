@@ -224,27 +224,41 @@ body { background-color: var(--bg-main); color: var(--text-main); height: 100vh;
   
   /* Adjust Grids to fit phones */
  /* Adjust Grids to fit phones - SMALLER & CLEANER TILES */
+/* ==================================
+     Adjust Grids & Scrolls for Phones
+     ================================== */
+  
+  /* 1. The Library / Search Grid */
   .grid { 
-    /* This allows 3 tiles to fit on most phone screens instead of 2 */
     grid-template-columns: repeat(auto-fill, minmax(105px, 1fr)); 
     gap: 12px; 
   }
-  .card { 
-    min-width: 0; /* Removes the desktop min-width limitation */
+  .grid .card { 
+    min-width: 0; 
     width: 100%; 
     padding: 10px; 
     border-radius: 12px;
   }
+
+  /* 2. The Homepage Horizontal Scroll (BRINGS ICONS BACK!) */
+  .horizontal-scroll .card {
+    min-width: 130px; /* Gives the homepage cards their size back */
+    width: 130px;
+    padding: 10px;
+    border-radius: 12px;
+  }
+
+  /* 3. Universal Mobile Card Tweaks */
   .card img { 
     margin-bottom: 8px; 
     border-radius: 8px; 
   }
   .card h3 { 
-    font-size: 0.85rem; /* Scaled down for mobile */
+    font-size: 0.85rem; 
     margin-bottom: 2px;
   }
   .card p { 
-    font-size: 0.75rem; /* Scaled down for mobile */
+    font-size: 0.75rem; 
   }
   .card-actions { 
     opacity: 1; 
@@ -253,7 +267,7 @@ body { background-color: var(--bg-main); color: var(--text-main); height: 100vh;
   } 
   .btn-card-action {
     width: 28px; 
-    height: 28px; /* Slightly smaller heart/plus buttons */
+    height: 28px; 
   }
   
   /* Details Screen */
