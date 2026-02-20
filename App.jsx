@@ -115,14 +115,14 @@ const APIs = {
   // --- NEW: QOBUZ INTEGRATION ---
   qobuz: {
     name: 'Qobuz',
-    appId: import.meta.env.VITE_QOBUZ_APP_ID, // <-- ADD THIS TO VERCEL
+    userId: import.meta.env.VITE_QOBUZ_USER_ID, // <-- ADD THIS TO VERCEL
     token: import.meta.env.VITE_QOBUZ_TOKEN,  // <-- ADD THIS TO VERCEL
     
     search: async function(query) {
       const res = await fetch(`https://www.qobuz.com/api.json/0.2/catalog/search?query=${encodeURIComponent(query)}&limit=25`, {
         headers: {
-          'X-App-Id': this.appId,
-          'X-User-Auth-Token': this.token
+          'X-User-Auth-Token': this.token,
+          'X-User-Id': this.userId
         }
       });
       const data = await res.json();
