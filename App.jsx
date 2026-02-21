@@ -458,7 +458,7 @@ function App() {
         if(res.success) setDetailsSongs(res.data.songs || res.data.topSongs || []);
       } catch(e) { console.error(e); } finally { setLoading(false); }
     }
-
+  };
   // --- AUTH & EFFECTS ---
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
