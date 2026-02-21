@@ -445,15 +445,19 @@ function App() {
     else {
       setSelectedItem(item); setTab('details'); setLoading(true); setDetailsSongs([]);
       try {
-        // Fallback for live modules item types mapping
-        const safeType = item.type || type || 'album';
-        let endpoint = safeType === 'album' ? `${API_BASE}/albums?id=${item.id}` : safeType === 'artist' ? `${API_BASE}/artists?id=${item.id}` : `${API_BASE}/playlists?id=${item.id}`;
-        
+        // We added &limit=100 to force the API to return up to 100 tracks instead of 10
+        let endpoint = itemType === 'album' 
+          ? `${API_BASE}/albums?id=${item.id}&limit=100` 
+          : itemType === 'artist' 
+            ? `${API_BASE}/artists?id=${item.id}&limit=100` 
+            : `${API_BASE}/playlists?id=${item.id}&limit=100`;
+            
         const res = await fetch(endpoint).then(r=>r.json());
+        
+        // Some APIs nest the extended lists differently, so we ensure we grab the right array
         if(res.success) setDetailsSongs(res.data.songs || res.data.topSongs || []);
       } catch(e) { console.error(e); } finally { setLoading(false); }
     }
-  };
 
   // --- AUTH & EFFECTS ---
   useEffect(() => {
