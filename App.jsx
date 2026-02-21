@@ -112,16 +112,17 @@ const APIs = {
       return res.url; 
     }
   },
+  // --- NEW: QOBUZ INTEGRATION ---
   qobuz: {
     name: 'Qobuz',
-    userId: import.meta.env.VITE_QOBUZ_USER_ID, 
-    token: import.meta.env.VITE_QOBUZ_TOKEN,  
+    userId: import.meta.env.VITE_QOBUZ_USER_ID, // <-- ADD THIS TO VERCEL
+    token: import.meta.env.VITE_QOBUZ_TOKEN,  // <-- ADD THIS TO VERCEL
     
     search: async function(query) {
       const res = await fetch(`https://www.qobuz.com/api.json/0.2/catalog/search?query=${encodeURIComponent(query)}&limit=25`, {
         headers: {
           'X-User-Auth-Token': this.token,
-          'X-User-Id': this.userId 
+          'X-User-Id': this.userId
         }
       });
       const data = await res.json();
@@ -131,6 +132,7 @@ const APIs = {
         name: item.title,
         primaryArtists: item.performer?.name || "Unknown Artist",
         image: [{ url: item.album?.image?.large || "https://via.placeholder.com/150" }],
+        // Qobuz previews map cleanly into your existing downloadUrl format
         downloadUrl: [{ url: item.previewUrl, quality: '320kbps' }], 
         duration: item.duration || 0,
         source: 'qobuz'
@@ -169,9 +171,8 @@ function App() {
   const [resPlaylists, setResPlaylists] = useState([]);
   const [moodPlaylists, setMoodPlaylists] = useState([]);
 
-  // --- UPDATED: Simplified state for Live JioSaavn Data ---
   const [homeData, setHomeData] = useState({ 
-    trending: [], charts: [], newAlbums: [], playlists: [] 
+    trending: [], charts: [], newAlbums: [], editorial: [], radio: [], topArtists: [], love: [], fresh: [], nineties: [], hindiPop: [] 
   });
   
   // Details & Modals
@@ -205,7 +206,7 @@ function App() {
   // Helpers
   const getImg = (i) => { if(Array.isArray(i)) return i[i.length-1]?.url || i[0]?.url; return i || "https://via.placeholder.com/150"; }
   const getName = (i) => i?.name || i?.title || "Unknown";
-  const getDesc = (i) => i?.primaryArtists || i?.subtitle || i?.year || "";
+  const getDesc = (i) => i?.primaryArtists || i?.description || i?.year || "";
   const isLiked = (id) => likedSongs.some(s => String(s.id) === String(id));
   
   const formatTime = (s) => {
@@ -228,29 +229,37 @@ function App() {
 
   useEffect(() => { setHistory(JSON.parse(localStorage.getItem('musiq_history') || '[]')); }, []);
 
-  // --- UPDATED: Live Homepage Fetch ---
+  // --- DATA FETCHING ---
   const fetchHome = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/modules?language=hindi,english,punjabi`);
-      const response = await res.json();
-      
-      if (response.data) {
-        const liveData = response.data;
-        setHomeData({ 
-          // Safely map JioSaavn's live structure
-          trending: liveData.trending?.albums || liveData.trending?.songs || liveData.trending || [], 
-          charts: liveData.charts || [], 
-          newAlbums: liveData.albums || [], 
-          playlists: liveData.playlists || [],
-        });
-      }
-    } catch(e) { 
-        console.error("Home Data Fetch Error:", e); 
-    } 
-    finally { 
-        setLoading(false); 
-    }
+      const results = await Promise.all([
+        fetch(`${API_BASE}/search/songs?query=Top 50&limit=15`).then(r=>r.json()).catch(()=>({})),
+        fetch(`${API_BASE}/search/playlists?query=Top Charts&limit=15`).then(r=>r.json()).catch(()=>({})),
+        fetch(`${API_BASE}/search/albums?query=New&limit=15`).then(r=>r.json()).catch(()=>({})),
+        fetch(`${API_BASE}/search/playlists?query=Editors Pick&limit=15`).then(r=>r.json()).catch(()=>({})),
+        fetch(`${API_BASE}/search/artists?query=Best&limit=15`).then(r=>r.json()).catch(()=>({})), 
+        fetch(`${API_BASE}/search/artists?query=Top Artists&limit=15`).then(r=>r.json()).catch(()=>({})),
+        fetch(`${API_BASE}/search/playlists?query=Love&limit=15`).then(r=>r.json()).catch(()=>({})),
+        fetch(`${API_BASE}/search/playlists?query=Fresh Hits&limit=15`).then(r=>r.json()).catch(()=>({})),
+        fetch(`${API_BASE}/search/playlists?query=90s Bollywood&limit=15`).then(r=>r.json()).catch(()=>({})),
+        fetch(`${API_BASE}/search/albums?query=New Hindi Pop&limit=15`).then(r=>r.json()).catch(()=>({}))
+      ]);
+
+      setHomeData({ 
+        trending: results[0]?.data?.results || [], 
+        charts: results[1]?.data?.results || [], 
+        newAlbums: results[2]?.data?.results || [], 
+        editorial: results[3]?.data?.results || [],
+        radio: results[4]?.data?.results || [],
+        topArtists: results[5]?.data?.results || [], 
+        love: results[6]?.data?.results || [],
+        fresh: results[7]?.data?.results || [],
+        nineties: results[8]?.data?.results || [],
+        hindiPop: results[9]?.data?.results || []
+      });
+    } catch(e) { console.error("Home Error", e); } 
+    finally { setLoading(false); }
   };
 
   const doSearch = async () => {
@@ -269,6 +278,7 @@ function App() {
           ]);
           setResSongs(s?.data?.results || []); setResAlbums(a?.data?.results || []); setResArtists(ar?.data?.results || []); setResPlaylists(p?.data?.results || []);
       } else {
+          // Dynamic API router for Apple Music, SoundCloud, and Qobuz!
           const songs = await APIs[source].search(searchQuery);
           setResSongs(songs);
       }
@@ -309,6 +319,7 @@ function App() {
     
     let url = "";
 
+    // 1. Resolve SoundCloud Streams dynamically
     if (s.source === 'soundcloud') {
         const toastId = toast.loading("Loading SoundCloud Stream...");
         try {
@@ -321,6 +332,7 @@ function App() {
             return;
         }
     } 
+    // 2. Standard JioSaavn/Apple Music/Qobuz URLs
     else if (s.downloadUrl && Array.isArray(s.downloadUrl)) {
         const urlObj = s.downloadUrl.find(u => u.quality === quality);
         url = urlObj ? urlObj.url : (s.downloadUrl[s.downloadUrl.length-1]?.url || s.downloadUrl[0]?.url);
@@ -445,20 +457,13 @@ function App() {
     else {
       setSelectedItem(item); setTab('details'); setLoading(true); setDetailsSongs([]);
       try {
-        // We added &limit=100 to force the API to return up to 100 tracks instead of 10
-        let endpoint = itemType === 'album' 
-          ? `${API_BASE}/albums?id=${item.id}&limit=100` 
-          : itemType === 'artist' 
-            ? `${API_BASE}/artists?id=${item.id}&limit=100` 
-            : `${API_BASE}/playlists?id=${item.id}&limit=100`;
-            
+        let endpoint = type === 'album' ? `${API_BASE}/albums?id=${item.id}` : type === 'artist' ? `${API_BASE}/artists?id=${item.id}` : `${API_BASE}/playlists?id=${item.id}`;
         const res = await fetch(endpoint).then(r=>r.json());
-        
-        // Some APIs nest the extended lists differently, so we ensure we grab the right array
         if(res.success) setDetailsSongs(res.data.songs || res.data.topSongs || []);
       } catch(e) { console.error(e); } finally { setLoading(false); }
     }
   };
+
   // --- AUTH & EFFECTS ---
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -633,6 +638,7 @@ function App() {
         <div className="main-content">
             <div className="header">
                 <div className="search-box">
+                    {/* --- MULTI-SOURCE DROPDOWN WITH QOBUZ ADDED --- */}
                     <select 
                       value={source} 
                       onChange={(e) => setSource(e.target.value)}
@@ -816,7 +822,7 @@ function App() {
                     </div>
                 )}
 
-                {/* --- LIVE HOMEPAGE VIEW --- */}
+                {/* HOME */}
                 {tab === 'home' && (
                     <>
                         <div className="hero">
@@ -824,7 +830,7 @@ function App() {
                             <p>Discover new music, fresh albums, and curated playlists.</p>
                         </div>
 
-                        {/* 1. History (Recently Played) */}
+                        {/* 1. History */}
                         {history.length > 0 && (
                             <div className="section">
                                 <div className="section-header">Recently Played</div>
@@ -838,8 +844,8 @@ function App() {
                                 </div>
                             </div>
                         )}
-                        
-                        {/* 2. Moods (Kept from previous build for UI flair!) */}
+
+                        {/* 2. Moods */}
                         <div className="section">
                             <div className="section-header">Moods</div>
                             <div className="horizontal-scroll">
@@ -851,69 +857,135 @@ function App() {
                             </div>
                         </div>
 
-                        {/* 3. LIVE JioSaavn Trending */}
-                        {homeData.trending.length > 0 && (
-                            <div className="section">
-                                <div className="section-header">Trending Now</div>
-                                <div className="horizontal-scroll">
-                                    {homeData.trending.map(item => (
-                                        <div key={item.id} className="card" onClick={()=>handleCardClick(item, item.type || 'album')}>
-                                            <img src={getImg(item.image)} alt=""/>
-                                            <h3>{getName(item)}</h3>
-                                            <p>{getDesc(item)}</p>
+                        {/* 3. Trending */}
+                        <div className="section">
+                            <div className="section-header">Trending Now</div>
+                            <div className="horizontal-scroll">
+                                {homeData.trending.map(s => (
+                                    <div key={s.id} className="card" onClick={()=>handleCardClick(s, 'song')}>
+                                        <img src={getImg(s.image)} alt=""/>
+                                        <h3>{getName(s)}</h3>
+                                        <p>{getDesc(s)}</p>
+                                        <div className="card-actions">
+                                            <button className={`btn-card-action ${isLiked(s.id)?'liked':''}`} onClick={(e)=>{e.stopPropagation(); toggleLike(s)}}><Icons.Heart/></button>
+                                            <button className="btn-card-action" onClick={(e)=>{e.stopPropagation(); setSongToAdd(s); setShowAddToPlaylistModal(true);}}><Icons.Plus/></button>
                                         </div>
-                                    ))}
-                                </div>
+                                    </div>
+                                ))}
                             </div>
-                        )}
+                        </div>
 
-                        {/* 4. LIVE JioSaavn Top Charts */}
-                        {homeData.charts.length > 0 && (
-                            <div className="section">
-                                <div className="section-header">Top Charts</div>
-                                <div className="horizontal-scroll">
-                                    {homeData.charts.map(chart => (
-                                        <div key={chart.id} className="card" onClick={()=>handleCardClick(chart, 'playlist')}>
-                                            <img src={getImg(chart.image)} alt=""/>
-                                            <h3>{getName(chart)}</h3>
-                                            <p>{chart.language || 'Chart'}</p>
-                                        </div>
-                                    ))}
-                                </div>
+                        {/* 4. Top Charts */}
+                        <div className="section">
+                            <div className="section-header">Top Charts</div>
+                            <div className="horizontal-scroll">
+                                {homeData.charts.map(p => (
+                                    <div key={p.id} className="card" onClick={()=>handleCardClick(p, 'playlist')}>
+                                        <img src={getImg(p.image)} alt=""/>
+                                        <h3>{getName(p)}</h3>
+                                        <p>{p.language}</p>
+                                    </div>
+                                ))}
                             </div>
-                        )}
+                        </div>
 
-                        {/* 5. LIVE JioSaavn New Albums */}
-                        {homeData.newAlbums.length > 0 && (
-                            <div className="section">
-                                <div className="section-header">New Releases</div>
-                                <div className="horizontal-scroll">
-                                    {homeData.newAlbums.map(album => (
-                                        <div key={album.id} className="card" onClick={()=>handleCardClick(album, 'album')}>
-                                            <img src={getImg(album.image)} alt=""/>
-                                            <h3>{getName(album)}</h3>
-                                            <p>{album.language || 'Album'}</p>
-                                        </div>
-                                    ))}
-                                </div>
+                        {/* 5. New Albums */}
+                        <div className="section">
+                            <div className="section-header">New Albums</div>
+                            <div className="horizontal-scroll">
+                                {homeData.newAlbums.map(a => (
+                                    <div key={a.id} className="card" onClick={()=>handleCardClick(a, 'album')}>
+                                        <img src={getImg(a.image)} alt=""/>
+                                        <h3>{getName(a)}</h3>
+                                        <p>{a.year}</p>
+                                    </div>
+                                ))}
                             </div>
-                        )}
+                        </div>
 
-                        {/* 6. LIVE JioSaavn Editor Playlists */}
-                        {homeData.playlists.length > 0 && (
-                            <div className="section">
-                                <div className="section-header">Editorial Picks</div>
-                                <div className="horizontal-scroll">
-                                    {homeData.playlists.map(playlist => (
-                                        <div key={playlist.id} className="card" onClick={()=>handleCardClick(playlist, 'playlist')}>
-                                            <img src={getImg(playlist.image)} alt=""/>
-                                            <h3>{getName(playlist)}</h3>
-                                            <p>{playlist.subtitle || 'Curated'}</p>
-                                        </div>
-                                    ))}
-                                </div>
+                        {/* 6. Radio (Artists) */}
+                        <div className="section">
+                            <div className="section-header">Radio Stations</div>
+                            <div className="horizontal-scroll">
+                                {homeData.radio.map(a => (
+                                    <div key={a.id} className="card" onClick={()=>handleCardClick(a, 'artist')}>
+                                        <img src={getImg(a.image)} alt="" style={{borderRadius:'50%'}}/>
+                                        <h3 style={{textAlign:'center'}}>{getName(a)}</h3>
+                                        <p style={{textAlign:'center', fontSize:'0.8rem'}}>Artist Radio</p>
+                                    </div>
+                                ))}
                             </div>
-                        )}
+                        </div>
+
+                        {/* 7. Top Artists */}
+                        <div className="section">
+                            <div className="section-header">Top Artists</div>
+                            <div className="horizontal-scroll">
+                                {homeData.topArtists.map(a => (
+                                    <div key={a.id} className="card" onClick={()=>handleCardClick(a, 'artist')}>
+                                        <img src={getImg(a.image)} alt="" style={{borderRadius:'50%'}}/>
+                                        <h3 style={{textAlign:'center'}}>{getName(a)}</h3>
+                                        <p style={{textAlign:'center', fontSize:'0.8rem'}}>Artist</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* 8. Editorial */}
+                        <div className="section">
+                            <div className="section-header">Editorial Picks</div>
+                            <div className="horizontal-scroll">
+                                {homeData.editorial.map(p => (
+                                    <div key={p.id} className="card" onClick={()=>handleCardClick(p, 'playlist')}>
+                                        <img src={getImg(p.image)} alt=""/>
+                                        <h3>{getName(p)}</h3>
+                                        <p>Featured</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* 9. Fresh Hits */}
+                        <div className="section">
+                            <div className="section-header">Fresh Hits</div>
+                            <div className="horizontal-scroll">
+                                {homeData.fresh.map(p => (
+                                    <div key={p.id} className="card" onClick={()=>handleCardClick(p, 'playlist')}>
+                                        <img src={getImg(p.image)} alt=""/>
+                                        <h3>{getName(p)}</h3>
+                                        <p>New Music</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* 10. 90s Magic */}
+                        <div className="section">
+                            <div className="section-header">Best of 90s</div>
+                            <div className="horizontal-scroll">
+                                {homeData.nineties.map(p => (
+                                    <div key={p.id} className="card" onClick={()=>handleCardClick(p, 'playlist')}>
+                                        <img src={getImg(p.image)} alt=""/>
+                                        <h3>{getName(p)}</h3>
+                                        <p>Nostalgia</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* 11. Hindi Pop */}
+                        <div className="section">
+                            <div className="section-header">New Hindi Pop</div>
+                            <div className="horizontal-scroll">
+                                {homeData.hindiPop.map(a => (
+                                    <div key={a.id} className="card" onClick={()=>handleCardClick(a, 'album')}>
+                                        <img src={getImg(a.image)} alt=""/>
+                                        <h3>{getName(a)}</h3>
+                                        <p>{a.year}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
                     </>
                 )}
 
@@ -942,6 +1014,7 @@ function App() {
         <div className={`player-bar ${currentSong ? 'visible' : ''}`} style={{transform: currentSong ? 'translateY(0)' : 'translateY(200px)', transition:'transform 0.3s'}}>
             {currentSong && (
                 <>
+                    {/* Mobile Progress Bar (Visual only, top of player) */}
                     <div className="mobile-progress-bar" style={{width: `${(progress/duration)*100}%`, display: 'none'}}></div> 
                     
                     <div className="p-track">
@@ -962,6 +1035,7 @@ function App() {
                                 {repeatMode==='one' ? <Icons.RepeatOne/> : <Icons.Repeat/>}
                             </button>
                         </div>
+                        {/* TIMELINE */}
                         <div className="progress-container">
                             <span>{formatTime(progress)}</span>
                             <div className="progress-rail" onClick={handleSeek}>
@@ -981,6 +1055,7 @@ function App() {
                         </select>
                     </div>
 
+                    {/* Mobile Controls (Only visible on small screens via CSS) */}
                     <div className="mobile-controls" style={{display:'none'}}> 
                        <button className="btn-play-mobile" onClick={togglePlay}>{isPlaying ? <Icons.Pause/> : <Icons.Play/>}</button>
                     </div>
