@@ -139,29 +139,36 @@ const APIs = {
   },
   // --- NEW: YOUTUBE INTEGRATION (Powered by your Next.js Backend) ---
 // --- NEW: YOUTUBE INTEGRATION (Powered by your Next.js Backend) ---
+// --- NEW: YOUTUBE INTEGRATION (Powered by your Next.js Backend) ---
   youtube: {
     name: 'YouTube',
     apiBase: import.meta.env.VITE_YT_API_BASE || 'http://localhost:3000',
     
     search: async function(query) {
-      // FIX: Clean the base URL by stripping any accidental trailing slashes
       const cleanBase = this.apiBase.replace(/\/$/, '');
-      
-      // Now it will reliably hit /api/stream without triggering a 308 Redirect!
       const res = await fetch(`${cleanBase}/api/stream?query=${encodeURIComponent(query)}`);
       const data = await res.json();
       
-      return (Array.isArray(data) ? data : []).map(item => ({
-        id: item.videoId,
-        name: item.name || item.title,
-        primaryArtists: item.artists?.[0]?.name || "YouTube Artist",
-        image: [{ url: item.thumbnails?.[0]?.url || "https://via.placeholder.com/150" }],
-        duration: item.duration || 0,
-        source: 'youtube'
-      }));
+      return (Array.isArray(data) ? data : []).map(item => {
+        // FIX: Grab the LAST item in the array (the highest resolution one)
+        let highResImage = "https://via.placeholder.com/150";
+        if (item.thumbnails && item.thumbnails.length > 0) {
+           highResImage = item.thumbnails[item.thumbnails.length - 1].url;
+           // Optional: Force Google's image server to upscale it to a crisp 500x500
+           highResImage = highResImage.replace(/=w\d+-h\d+.*/, '=w500-h500-l90-rj');
+        }
+
+        return {
+          id: item.videoId,
+          name: item.name || item.title,
+          primaryArtists: item.artists?.[0]?.name || "YouTube Artist",
+          image: [{ url: highResImage }],
+          duration: item.duration || 0,
+          source: 'youtube'
+        };
+      });
     }
   }
-}
 const MOODS = [
   { id: 'm1', name: 'Party', color: '#e57373', query: 'Party Hits' },
   { id: 'm2', name: 'Romance', color: '#f06292', query: 'Love Songs' },
