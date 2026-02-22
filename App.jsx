@@ -112,17 +112,16 @@ const APIs = {
       return res.url; 
     }
   },
-  // --- NEW: QOBUZ INTEGRATION ---
   qobuz: {
     name: 'Qobuz',
-    userId: import.meta.env.VITE_QOBUZ_USER_ID, // <-- ADD THIS TO VERCEL
-    token: import.meta.env.VITE_QOBUZ_TOKEN,  // <-- ADD THIS TO VERCEL
+    userId: import.meta.env.VITE_QOBUZ_USER_ID, 
+    token: import.meta.env.VITE_QOBUZ_TOKEN,  
     
     search: async function(query) {
       const res = await fetch(`https://www.qobuz.com/api.json/0.2/catalog/search?query=${encodeURIComponent(query)}&limit=25`, {
         headers: {
           'X-User-Auth-Token': this.token,
-          'X-User-Id': this.userId
+          'X-User-Id': this.userId 
         }
       });
       const data = await res.json();
@@ -132,14 +131,36 @@ const APIs = {
         name: item.title,
         primaryArtists: item.performer?.name || "Unknown Artist",
         image: [{ url: item.album?.image?.large || "https://via.placeholder.com/150" }],
-        // Qobuz previews map cleanly into your existing downloadUrl format
         downloadUrl: [{ url: item.previewUrl, quality: '320kbps' }], 
         duration: item.duration || 0,
         source: 'qobuz'
       }));
     }
+  },
+  // --- NEW: YOUTUBE INTEGRATION (Powered by your Next.js Backend) ---
+// --- NEW: YOUTUBE INTEGRATION (Powered by your Next.js Backend) ---
+  youtube: {
+    name: 'YouTube',
+    apiBase: import.meta.env.VITE_YT_API_BASE || 'http://localhost:3000',
+    
+    search: async function(query) {
+      // FIX: Clean the base URL by stripping any accidental trailing slashes
+      const cleanBase = this.apiBase.replace(/\/$/, '');
+      
+      // Now it will reliably hit /api/stream without triggering a 308 Redirect!
+      const res = await fetch(`${cleanBase}/api/stream?query=${encodeURIComponent(query)}`);
+      const data = await res.json();
+      
+      return (Array.isArray(data) ? data : []).map(item => ({
+        id: item.videoId,
+        name: item.name || item.title,
+        primaryArtists: item.artists?.[0]?.name || "YouTube Artist",
+        image: [{ url: item.thumbnails?.[0]?.url || "https://via.placeholder.com/150" }],
+        duration: item.duration || 0,
+        source: 'youtube'
+      }));
+    }
   }
-};
 
 const MOODS = [
   { id: 'm1', name: 'Party', color: '#e57373', query: 'Party Hits' },
@@ -172,7 +193,7 @@ function App() {
   const [moodPlaylists, setMoodPlaylists] = useState([]);
 
   const [homeData, setHomeData] = useState({ 
-    trending: [], charts: [], newAlbums: [], editorial: [], radio: [], topArtists: [], love: [], fresh: [], nineties: [], hindiPop: [] 
+    trending: [], charts: [], newAlbums: [], playlists: [] 
   });
   
   // Details & Modals
@@ -190,8 +211,16 @@ function App() {
   const [authMode, setAuthMode] = useState('login');
   const [authInput, setAuthInput] = useState({ email: '', password: '' });
 
-  // Player
+  // Standard HTML5 Player Refs
   const audioRef = useRef(new Audio());
+  
+  // --- NEW: YOUTUBE IFRAME PLAYER REFS ---
+  const ytPlayerRef = useRef(null);
+  const watchdogRef = useRef(null);
+  const ytProgressInterval = useRef(null);
+  const [ytReady, setYtReady] = useState(false);
+
+  // Player State
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentSong, setCurrentSong] = useState(null);
   const [queue, setQueue] = useState([]);
@@ -203,10 +232,14 @@ function App() {
   const [isShuffle, setIsShuffle] = useState(false);
   const [repeatMode, setRepeatMode] = useState('none'); 
 
+  // Store current playing song ID for the YT Error callback
+  const currentSongRef = useRef(null);
+  useEffect(() => { currentSongRef.current = currentSong; }, [currentSong]);
+
   // Helpers
   const getImg = (i) => { if(Array.isArray(i)) return i[i.length-1]?.url || i[0]?.url; return i || "https://via.placeholder.com/150"; }
   const getName = (i) => i?.name || i?.title || "Unknown";
-  const getDesc = (i) => i?.primaryArtists || i?.description || i?.year || "";
+  const getDesc = (i) => i?.primaryArtists || i?.subtitle || i?.year || "";
   const isLiked = (id) => likedSongs.some(s => String(s.id) === String(id));
   
   const formatTime = (s) => {
@@ -216,7 +249,6 @@ function App() {
     return `${min}:${sec < 10 ? '0'+sec : sec}`;
   };
 
-  // --- HISTORY LOGIC ---
   const addToHistory = (song) => {
     const prev = JSON.parse(localStorage.getItem('musiq_history') || '[]');
     const newHist = [song, ...prev.filter(s => String(s.id) !== String(song.id))].slice(0, 15);
@@ -229,36 +261,72 @@ function App() {
 
   useEffect(() => { setHistory(JSON.parse(localStorage.getItem('musiq_history') || '[]')); }, []);
 
-  // --- DATA FETCHING ---
+  // --- YOUTUBE IFRAME INITIALIZATION (Your Logic) ---
+  const initYTPlayer = (videoId = '') => {
+    if (ytPlayerRef.current && typeof ytPlayerRef.current.destroy === 'function') {
+      try { ytPlayerRef.current.destroy(); } catch (e) {}
+    }
+
+    ytPlayerRef.current = new window.YT.Player('hidden-yt-player', {
+      height: '0',
+      width: '0',
+      videoId: videoId,
+      playerVars: { 'autoplay': 1, 'controls': 0, 'origin': window.location.origin },
+      events: {
+        'onReady': (event) => {
+          setYtReady(true);
+          if (videoId) event.target.playVideo();
+        },
+        'onStateChange': (event) => {
+          if (event.data === window.YT.PlayerState.PLAYING) {
+            clearTimeout(watchdogRef.current);
+            setIsPlaying(true);
+          }
+          if (event.data === window.YT.PlayerState.PAUSED) {
+            setIsPlaying(false);
+          }
+          if (event.data === window.YT.PlayerState.ENDED) {
+            onTrackEndRef.current(); // Triggers the next track
+          }
+        },
+        'onError': () => {
+          console.warn("YT Player Error - Attempting Reset...");
+          if (currentSongRef.current?.id) initYTPlayer(currentSongRef.current.id);
+        }
+      }
+    });
+  };
+
+  // Inject YouTube API Script
+  useEffect(() => {
+    if (!window.YT) {
+      const tag = document.createElement('script');
+      tag.src = "https://www.youtube.com/iframe_api";
+      const firstScriptTag = document.getElementsByTagName('script')[0];
+      firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+      window.onYouTubeIframeAPIReady = () => initYTPlayer();
+    } else {
+      initYTPlayer();
+    }
+  }, []);
+
+
   const fetchHome = async () => {
     setLoading(true);
     try {
-      const results = await Promise.all([
-        fetch(`${API_BASE}/search/songs?query=Top 50&limit=15`).then(r=>r.json()).catch(()=>({})),
-        fetch(`${API_BASE}/search/playlists?query=Top Charts&limit=15`).then(r=>r.json()).catch(()=>({})),
-        fetch(`${API_BASE}/search/albums?query=New&limit=15`).then(r=>r.json()).catch(()=>({})),
-        fetch(`${API_BASE}/search/playlists?query=Editors Pick&limit=15`).then(r=>r.json()).catch(()=>({})),
-        fetch(`${API_BASE}/search/artists?query=Best&limit=15`).then(r=>r.json()).catch(()=>({})), 
-        fetch(`${API_BASE}/search/artists?query=Top Artists&limit=15`).then(r=>r.json()).catch(()=>({})),
-        fetch(`${API_BASE}/search/playlists?query=Love&limit=15`).then(r=>r.json()).catch(()=>({})),
-        fetch(`${API_BASE}/search/playlists?query=Fresh Hits&limit=15`).then(r=>r.json()).catch(()=>({})),
-        fetch(`${API_BASE}/search/playlists?query=90s Bollywood&limit=15`).then(r=>r.json()).catch(()=>({})),
-        fetch(`${API_BASE}/search/albums?query=New Hindi Pop&limit=15`).then(r=>r.json()).catch(()=>({}))
-      ]);
-
-      setHomeData({ 
-        trending: results[0]?.data?.results || [], 
-        charts: results[1]?.data?.results || [], 
-        newAlbums: results[2]?.data?.results || [], 
-        editorial: results[3]?.data?.results || [],
-        radio: results[4]?.data?.results || [],
-        topArtists: results[5]?.data?.results || [], 
-        love: results[6]?.data?.results || [],
-        fresh: results[7]?.data?.results || [],
-        nineties: results[8]?.data?.results || [],
-        hindiPop: results[9]?.data?.results || []
-      });
-    } catch(e) { console.error("Home Error", e); } 
+      const res = await fetch(`${API_BASE}/modules?language=hindi,english,punjabi`);
+      const response = await res.json();
+      
+      if (response.data) {
+        const liveData = response.data;
+        setHomeData({ 
+          trending: liveData.trending?.albums || liveData.trending?.songs || liveData.trending || [], 
+          charts: liveData.charts || [], 
+          newAlbums: liveData.albums || [], 
+          playlists: liveData.playlists || [],
+        });
+      }
+    } catch(e) { console.error("Home Data Fetch Error:", e); } 
     finally { setLoading(false); }
   };
 
@@ -278,7 +346,7 @@ function App() {
           ]);
           setResSongs(s?.data?.results || []); setResAlbums(a?.data?.results || []); setResArtists(ar?.data?.results || []); setResPlaylists(p?.data?.results || []);
       } else {
-          // Dynamic API router for Apple Music, SoundCloud, and Qobuz!
+          // Dynamic API router hits YouTube, Apple Music, SoundCloud, or Qobuz
           const songs = await APIs[source].search(searchQuery);
           setResSongs(songs);
       }
@@ -309,17 +377,41 @@ function App() {
     } catch(e) { toast.error("Error loading lyrics", { id: toastId }); }
   };
 
-  // --- ASYNC PLAYER LOGIC ---
+  // --- HYBRID PLAYER LOGIC ---
   const playSong = async (list, idx) => {
     if(!list || !list[idx]) return;
     setQueue(list); setQIndex(idx);
     const s = list[idx];
     setCurrentSong(s);
     addToHistory(s);
+
+    // 1. YouTube Routing (Using your specific Iframe & Watchdog logic)
+    if (s.source === 'youtube') {
+      audioRef.current.pause(); // Ensure HTML5 player stops
+      
+      clearTimeout(watchdogRef.current);
+      watchdogRef.current = setTimeout(() => {
+        console.warn("YouTube Freeze detected. Re-initializing player...");
+        initYTPlayer(s.id);
+      }, 3000);
+
+      if (ytReady && ytPlayerRef.current && typeof ytPlayerRef.current.loadVideoById === 'function') {
+        ytPlayerRef.current.loadVideoById(s.id);
+        ytPlayerRef.current.playVideo();
+      } else {
+        initYTPlayer(s.id);
+      }
+      return; 
+    }
     
+    // 2. Stop YouTube if playing standard audio
+    if (ytPlayerRef.current && typeof ytPlayerRef.current.pauseVideo === 'function') {
+      ytPlayerRef.current.pauseVideo();
+    }
+    
+    // 3. Resolve standard Streams (SoundCloud, Saavn, Qobuz)
     let url = "";
 
-    // 1. Resolve SoundCloud Streams dynamically
     if (s.source === 'soundcloud') {
         const toastId = toast.loading("Loading SoundCloud Stream...");
         try {
@@ -328,11 +420,10 @@ function App() {
             if (!url) throw new Error("No stream found");
         } catch (e) {
             toast.dismiss(toastId);
-            toast.error("Stream blocked by artist (SoundCloud Go+ only).");
+            toast.error("Stream blocked by artist.");
             return;
         }
     } 
-    // 2. Standard JioSaavn/Apple Music/Qobuz URLs
     else if (s.downloadUrl && Array.isArray(s.downloadUrl)) {
         const urlObj = s.downloadUrl.find(u => u.quality === quality);
         url = urlObj ? urlObj.url : (s.downloadUrl[s.downloadUrl.length-1]?.url || s.downloadUrl[0]?.url);
@@ -357,15 +448,25 @@ function App() {
   };
 
   const togglePlay = () => {
-    if(audioRef.current.paused) { audioRef.current.play(); setIsPlaying(true); }
-    else { audioRef.current.pause(); setIsPlaying(false); }
+    if (currentSong?.source === 'youtube') {
+      if (isPlaying) ytPlayerRef.current?.pauseVideo();
+      else ytPlayerRef.current?.playVideo();
+    } else {
+      if (audioRef.current.paused) { audioRef.current.play(); setIsPlaying(true); }
+      else { audioRef.current.pause(); setIsPlaying(false); }
+    }
   };
 
   const handleSeek = (e) => {
     const w = e.currentTarget.clientWidth;
     const x = e.nativeEvent.offsetX;
     const seekTo = (x / w) * duration;
-    audioRef.current.currentTime = seekTo;
+    
+    if (currentSong?.source === 'youtube') {
+      ytPlayerRef.current?.seekTo(seekTo, true);
+    } else {
+      audioRef.current.currentTime = seekTo;
+    }
     setProgress(seekTo);
   };
 
@@ -385,7 +486,11 @@ function App() {
     if(idx < qIndex) setQIndex(qIndex - 1);
     if(idx === qIndex) {
         if(newQueue.length > 0) playSong(newQueue, idx < newQueue.length ? idx : 0);
-        else { audioRef.current.pause(); setCurrentSong(null); setIsPlaying(false); }
+        else { 
+          audioRef.current.pause(); 
+          if(ytPlayerRef.current) ytPlayerRef.current.pauseVideo();
+          setCurrentSong(null); setIsPlaying(false); 
+        }
     }
   };
 
@@ -445,9 +550,10 @@ function App() {
 
   // --- NAVIGATION ---
   const handleCardClick = async (item, type) => {
-    if (type === 'song') { playSong([item], 0); }
-    else if (type === 'playlist_custom') { setSelectedItem(item); setTab('details'); setDetailsSongs(item.songs || []); }
-    else if (type === 'mood') {
+    const itemType = type || item.type;
+    if (itemType === 'song') { playSong([item], 0); }
+    else if (itemType === 'playlist_custom') { setSelectedItem(item); setTab('details'); setDetailsSongs(item.songs || []); }
+    else if (itemType === 'mood') {
         setLoading(true); setTab('mood'); setSelectedItem(item);
         try {
             const res = await fetch(`${API_BASE}/search/playlists?query=${encodeURIComponent(item.query)}`).then(r=>r.json());
@@ -457,7 +563,7 @@ function App() {
     else {
       setSelectedItem(item); setTab('details'); setLoading(true); setDetailsSongs([]);
       try {
-        let endpoint = type === 'album' ? `${API_BASE}/albums?id=${item.id}` : type === 'artist' ? `${API_BASE}/artists?id=${item.id}` : `${API_BASE}/playlists?id=${item.id}`;
+        let endpoint = itemType === 'album' ? `${API_BASE}/albums?id=${item.id}` : itemType === 'artist' ? `${API_BASE}/artists?id=${item.id}` : `${API_BASE}/playlists?id=${item.id}`;
         const res = await fetch(endpoint).then(r=>r.json());
         if(res.success) setDetailsSongs(res.data.songs || res.data.topSongs || []);
       } catch(e) { console.error(e); } finally { setLoading(false); }
@@ -499,20 +605,48 @@ function App() {
     } catch(e) { toast.error(e.message, { id: toastId }); }
   };
 
+  // Safe Track Progression Callback
+  const onTrackEndRef = useRef(() => {});
   useEffect(() => {
-    const a = audioRef.current;
-    const updateTime = () => { setProgress(a.currentTime); setDuration(a.duration||0); };
-    const handleEnd = () => {
-      if(repeatMode === 'one') { a.currentTime = 0; a.play(); }
+    onTrackEndRef.current = () => {
+      if(repeatMode === 'one') { 
+        if(currentSong?.source === 'youtube') ytPlayerRef.current?.seekTo(0);
+        else { audioRef.current.currentTime = 0; audioRef.current.play(); }
+      }
       else if(isShuffle) { playSong(queue, Math.floor(Math.random() * queue.length)); }
       else if(qIndex < queue.length - 1) { playSong(queue, qIndex + 1); }
       else if(repeatMode === 'all') { playSong(queue, 0); }
       else { setIsPlaying(false); }
     };
-    a.addEventListener('timeupdate', updateTime); a.addEventListener('ended', handleEnd);
-    return () => { a.removeEventListener('timeupdate', updateTime); a.removeEventListener('ended', handleEnd); };
-  }, [queue, qIndex, repeatMode, isShuffle]);
+  }, [queue, qIndex, repeatMode, isShuffle, currentSong]);
 
+  // HTML5 Audio Time & End Listeners
+  useEffect(() => {
+    const a = audioRef.current;
+    const updateTime = () => { setProgress(a.currentTime); setDuration(a.duration||0); };
+    const handleEnd = () => onTrackEndRef.current();
+    
+    a.addEventListener('timeupdate', updateTime); 
+    a.addEventListener('ended', handleEnd);
+    return () => { a.removeEventListener('timeupdate', updateTime); a.removeEventListener('ended', handleEnd); };
+  }, []);
+
+  // YouTube Iframe Progress Tracking
+  useEffect(() => {
+    if (isPlaying && currentSong?.source === 'youtube') {
+      ytProgressInterval.current = setInterval(() => {
+        if (ytPlayerRef.current && typeof ytPlayerRef.current.getCurrentTime === 'function') {
+          setProgress(ytPlayerRef.current.getCurrentTime());
+          setDuration(ytPlayerRef.current.getDuration() || 0);
+        }
+      }, 1000);
+    } else {
+      clearInterval(ytProgressInterval.current);
+    }
+    return () => clearInterval(ytProgressInterval.current);
+  }, [isPlaying, currentSong]);
+
+  // MediaSession & Keyboard Controls
   useEffect(() => {
     const handleKey = (e) => {
         if(e.target.tagName==='INPUT') return;
@@ -520,7 +654,7 @@ function App() {
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [isPlaying]);
+  }, [isPlaying, currentSong]);
 
   useEffect(() => {
     if ('mediaSession' in navigator && currentSong) {
@@ -555,6 +689,9 @@ function App() {
   return (
     <div className="app-layout">
         <Toaster position="top-center" toastOptions={{style:{background:'#333', color:'#fff'}}}/>
+
+        {/* --- INJECTING YOUR HIDDEN YOUTUBE PLAYER --- */}
+        <div id="hidden-yt-player" style={{ position: 'absolute', top: '-1000px', width: '1px', height: '1px' }}></div>
 
         {showLyrics && (
             <div className="lyrics-overlay">
@@ -638,7 +775,6 @@ function App() {
         <div className="main-content">
             <div className="header">
                 <div className="search-box">
-                    {/* --- MULTI-SOURCE DROPDOWN WITH QOBUZ ADDED --- */}
                     <select 
                       value={source} 
                       onChange={(e) => setSource(e.target.value)}
@@ -648,6 +784,7 @@ function App() {
                       <option value="itunes">Apple Music</option>
                       <option value="soundcloud">SoundCloud</option>
                       <option value="qobuz">Qobuz</option>
+                      <option value="youtube">YouTube</option>
                     </select>
                     <div style={{width: 1, height: 20, background: '#333', marginRight: 8}}></div>
 
@@ -822,7 +959,7 @@ function App() {
                     </div>
                 )}
 
-                {/* HOME */}
+                {/* --- LIVE HOMEPAGE VIEW --- */}
                 {tab === 'home' && (
                     <>
                         <div className="hero">
@@ -844,7 +981,7 @@ function App() {
                                 </div>
                             </div>
                         )}
-
+                        
                         {/* 2. Moods */}
                         <div className="section">
                             <div className="section-header">Moods</div>
@@ -857,135 +994,69 @@ function App() {
                             </div>
                         </div>
 
-                        {/* 3. Trending */}
-                        <div className="section">
-                            <div className="section-header">Trending Now</div>
-                            <div className="horizontal-scroll">
-                                {homeData.trending.map(s => (
-                                    <div key={s.id} className="card" onClick={()=>handleCardClick(s, 'song')}>
-                                        <img src={getImg(s.image)} alt=""/>
-                                        <h3>{getName(s)}</h3>
-                                        <p>{getDesc(s)}</p>
-                                        <div className="card-actions">
-                                            <button className={`btn-card-action ${isLiked(s.id)?'liked':''}`} onClick={(e)=>{e.stopPropagation(); toggleLike(s)}}><Icons.Heart/></button>
-                                            <button className="btn-card-action" onClick={(e)=>{e.stopPropagation(); setSongToAdd(s); setShowAddToPlaylistModal(true);}}><Icons.Plus/></button>
+                        {/* 3. LIVE JioSaavn Trending */}
+                        {homeData.trending.length > 0 && (
+                            <div className="section">
+                                <div className="section-header">Trending Now</div>
+                                <div className="horizontal-scroll">
+                                    {homeData.trending.map(item => (
+                                        <div key={item.id} className="card" onClick={()=>handleCardClick(item, item.type || 'album')}>
+                                            <img src={getImg(item.image)} alt=""/>
+                                            <h3>{getName(item)}</h3>
+                                            <p>{getDesc(item)}</p>
                                         </div>
-                                    </div>
-                                ))}
+                                    ))}
+                                </div>
                             </div>
-                        </div>
+                        )}
 
-                        {/* 4. Top Charts */}
-                        <div className="section">
-                            <div className="section-header">Top Charts</div>
-                            <div className="horizontal-scroll">
-                                {homeData.charts.map(p => (
-                                    <div key={p.id} className="card" onClick={()=>handleCardClick(p, 'playlist')}>
-                                        <img src={getImg(p.image)} alt=""/>
-                                        <h3>{getName(p)}</h3>
-                                        <p>{p.language}</p>
-                                    </div>
-                                ))}
+                        {/* 4. LIVE JioSaavn Top Charts */}
+                        {homeData.charts.length > 0 && (
+                            <div className="section">
+                                <div className="section-header">Top Charts</div>
+                                <div className="horizontal-scroll">
+                                    {homeData.charts.map(chart => (
+                                        <div key={chart.id} className="card" onClick={()=>handleCardClick(chart, 'playlist')}>
+                                            <img src={getImg(chart.image)} alt=""/>
+                                            <h3>{getName(chart)}</h3>
+                                            <p>{chart.language || 'Chart'}</p>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
-                        </div>
+                        )}
 
-                        {/* 5. New Albums */}
-                        <div className="section">
-                            <div className="section-header">New Albums</div>
-                            <div className="horizontal-scroll">
-                                {homeData.newAlbums.map(a => (
-                                    <div key={a.id} className="card" onClick={()=>handleCardClick(a, 'album')}>
-                                        <img src={getImg(a.image)} alt=""/>
-                                        <h3>{getName(a)}</h3>
-                                        <p>{a.year}</p>
-                                    </div>
-                                ))}
+                        {/* 5. LIVE JioSaavn New Albums */}
+                        {homeData.newAlbums.length > 0 && (
+                            <div className="section">
+                                <div className="section-header">New Releases</div>
+                                <div className="horizontal-scroll">
+                                    {homeData.newAlbums.map(album => (
+                                        <div key={album.id} className="card" onClick={()=>handleCardClick(album, 'album')}>
+                                            <img src={getImg(album.image)} alt=""/>
+                                            <h3>{getName(album)}</h3>
+                                            <p>{album.language || 'Album'}</p>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
-                        </div>
+                        )}
 
-                        {/* 6. Radio (Artists) */}
-                        <div className="section">
-                            <div className="section-header">Radio Stations</div>
-                            <div className="horizontal-scroll">
-                                {homeData.radio.map(a => (
-                                    <div key={a.id} className="card" onClick={()=>handleCardClick(a, 'artist')}>
-                                        <img src={getImg(a.image)} alt="" style={{borderRadius:'50%'}}/>
-                                        <h3 style={{textAlign:'center'}}>{getName(a)}</h3>
-                                        <p style={{textAlign:'center', fontSize:'0.8rem'}}>Artist Radio</p>
-                                    </div>
-                                ))}
+                        {/* 6. LIVE JioSaavn Editor Playlists */}
+                        {homeData.playlists.length > 0 && (
+                            <div className="section">
+                                <div className="section-header">Editorial Picks</div>
+                                <div className="horizontal-scroll">
+                                    {homeData.playlists.map(playlist => (
+                                        <div key={playlist.id} className="card" onClick={()=>handleCardClick(playlist, 'playlist')}>
+                                            <img src={getImg(playlist.image)} alt=""/>
+                                            <h3>{getName(playlist)}</h3>
+                                            <p>{playlist.subtitle || 'Curated'}</p>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
-                        </div>
-
-                        {/* 7. Top Artists */}
-                        <div className="section">
-                            <div className="section-header">Top Artists</div>
-                            <div className="horizontal-scroll">
-                                {homeData.topArtists.map(a => (
-                                    <div key={a.id} className="card" onClick={()=>handleCardClick(a, 'artist')}>
-                                        <img src={getImg(a.image)} alt="" style={{borderRadius:'50%'}}/>
-                                        <h3 style={{textAlign:'center'}}>{getName(a)}</h3>
-                                        <p style={{textAlign:'center', fontSize:'0.8rem'}}>Artist</p>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* 8. Editorial */}
-                        <div className="section">
-                            <div className="section-header">Editorial Picks</div>
-                            <div className="horizontal-scroll">
-                                {homeData.editorial.map(p => (
-                                    <div key={p.id} className="card" onClick={()=>handleCardClick(p, 'playlist')}>
-                                        <img src={getImg(p.image)} alt=""/>
-                                        <h3>{getName(p)}</h3>
-                                        <p>Featured</p>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* 9. Fresh Hits */}
-                        <div className="section">
-                            <div className="section-header">Fresh Hits</div>
-                            <div className="horizontal-scroll">
-                                {homeData.fresh.map(p => (
-                                    <div key={p.id} className="card" onClick={()=>handleCardClick(p, 'playlist')}>
-                                        <img src={getImg(p.image)} alt=""/>
-                                        <h3>{getName(p)}</h3>
-                                        <p>New Music</p>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* 10. 90s Magic */}
-                        <div className="section">
-                            <div className="section-header">Best of 90s</div>
-                            <div className="horizontal-scroll">
-                                {homeData.nineties.map(p => (
-                                    <div key={p.id} className="card" onClick={()=>handleCardClick(p, 'playlist')}>
-                                        <img src={getImg(p.image)} alt=""/>
-                                        <h3>{getName(p)}</h3>
-                                        <p>Nostalgia</p>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* 11. Hindi Pop */}
-                        <div className="section">
-                            <div className="section-header">New Hindi Pop</div>
-                            <div className="horizontal-scroll">
-                                {homeData.hindiPop.map(a => (
-                                    <div key={a.id} className="card" onClick={()=>handleCardClick(a, 'album')}>
-                                        <img src={getImg(a.image)} alt=""/>
-                                        <h3>{getName(a)}</h3>
-                                        <p>{a.year}</p>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
+                        )}
                     </>
                 )}
 
@@ -1014,7 +1085,6 @@ function App() {
         <div className={`player-bar ${currentSong ? 'visible' : ''}`} style={{transform: currentSong ? 'translateY(0)' : 'translateY(200px)', transition:'transform 0.3s'}}>
             {currentSong && (
                 <>
-                    {/* Mobile Progress Bar (Visual only, top of player) */}
                     <div className="mobile-progress-bar" style={{width: `${(progress/duration)*100}%`, display: 'none'}}></div> 
                     
                     <div className="p-track">
@@ -1035,7 +1105,6 @@ function App() {
                                 {repeatMode==='one' ? <Icons.RepeatOne/> : <Icons.Repeat/>}
                             </button>
                         </div>
-                        {/* TIMELINE */}
                         <div className="progress-container">
                             <span>{formatTime(progress)}</span>
                             <div className="progress-rail" onClick={handleSeek}>
@@ -1047,7 +1116,12 @@ function App() {
                     <div className="p-right">
                         <button className={`btn-icon ${showLyrics?'active':''}`} onClick={fetchLyrics}><Icons.Mic/></button>
                         <button className={`btn-icon ${showQueue?'active':''}`} onClick={()=>setShowQueue(!showQueue)}><Icons.List/></button>
-                        <input type="range" className="volume-slider" min="0" max="1" step="0.1" value={volume} onChange={e=>{setVolume(e.target.value); audioRef.current.volume=e.target.value}}/>
+                        <input type="range" className="volume-slider" min="0" max="1" step="0.1" value={volume} 
+                               onChange={e => {
+                                  setVolume(e.target.value); 
+                                  audioRef.current.volume=e.target.value;
+                                  if (ytPlayerRef.current?.setVolume) ytPlayerRef.current.setVolume(e.target.value * 100);
+                               }}/>
                         <select className="quality-select" value={quality} onChange={e=>handleQualityChange(e.target.value)}>
                             <option value="320kbps">320kbps</option>
                             <option value="160kbps">160kbps</option>
@@ -1055,7 +1129,6 @@ function App() {
                         </select>
                     </div>
 
-                    {/* Mobile Controls (Only visible on small screens via CSS) */}
                     <div className="mobile-controls" style={{display:'none'}}> 
                        <button className="btn-play-mobile" onClick={togglePlay}>{isPlaying ? <Icons.Pause/> : <Icons.Play/>}</button>
                     </div>
