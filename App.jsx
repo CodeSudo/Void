@@ -1250,7 +1250,7 @@ const [homeData, setHomeData] = useState({
                                 {repeatMode==='one' ? <Icons.RepeatOne/> : <Icons.Repeat/>}
                             </button>
                         </div>
-{/* TIMELINE */}
+                        {/* TIMELINE */}
                         <div className="progress-container">
                             <span>{formatTime(progress)}</span>
                             <div className="progress-rail" onClick={handleSeek} style={{ position: 'relative', overflow: 'hidden' }}>
@@ -1293,8 +1293,6 @@ const [homeData, setHomeData] = useState({
                     <div className="mobile-controls" style={{display:'none'}}> 
                        <button className="btn-play-mobile" onClick={togglePlay}>{isPlaying ? <Icons.Pause/> : <Icons.Play/>}</button>
                     </div>
-                </>
-            )}
         </div>
 
         {/* BOTTOM NAV (Mobile) */}
