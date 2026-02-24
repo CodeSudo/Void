@@ -439,8 +439,20 @@ function App() {
             return;
         }
     } 
+// 3. JioSaavn, Qobuz, Apple Music Routing
     else if (s.downloadUrl && Array.isArray(s.downloadUrl)) {
-        const urlObj = s.downloadUrl.find(u => u.quality === quality);
+        let urlObj;
+        if (quality === 'Premium') {
+            // Hunt for lossless audio (Qobuz), fallback to 320kbps (Saavn/Apple), or just take the highest available
+            urlObj = s.downloadUrl.find(u => u.quality === 'lossless') || 
+                     s.downloadUrl.find(u => u.quality === '320kbps') || 
+                     s.downloadUrl[s.downloadUrl.length - 1];
+        } else {
+            // Match exact quality (Low = 96kbps, Medium = 160kbps, High = 320kbps)
+            urlObj = s.downloadUrl.find(u => u.quality === quality);
+        }
+        
+        // Final safety fallback
         url = urlObj ? urlObj.url : (s.downloadUrl[s.downloadUrl.length-1]?.url || s.downloadUrl[0]?.url);
     }
 
@@ -1284,6 +1296,30 @@ function App() {
                                   audioRef.current.volume=e.target.value;
                                   if (ytPlayerRef.current?.setVolume) ytPlayerRef.current.setVolume(e.target.value * 100);
                                }}/>
+                      {/* --- NEW STYLED QUALITY SELECTOR --- */}
+                        <select 
+                            className="quality-select" 
+                            value={quality} 
+                            onChange={e => handleQualityChange(e.target.value)}
+                            style={{
+                                background: 'rgba(255, 255, 255, 0.15)', 
+                                color: 'white', 
+                                border: '1px solid rgba(255, 255, 255, 0.2)', 
+                                borderRadius: '20px', 
+                                padding: '6px 12px', 
+                                marginLeft: '15px', 
+                                cursor: 'pointer',
+                                outline: 'none',
+                                fontWeight: '600',
+                                fontSize: '0.75rem',
+                                backdropFilter: 'blur(10px)'
+                            }}
+                        >
+                            <option value="96kbps" style={{color: 'black'}}>Low</option>
+                            <option value="160kbps" style={{color: 'black'}}>Medium</option>
+                            <option value="320kbps" style={{color: 'black'}}>High</option>
+                            <option value="Premium" style={{color: 'black'}}>Premium</option>
+                        </select>
                         
                         {/* THEATER MODE TOGGLE */}
                         <button className="btn-icon" onClick={() => setTheaterMode(!theaterMode)} style={{marginLeft: '10px'}}>
