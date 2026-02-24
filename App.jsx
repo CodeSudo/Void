@@ -1251,6 +1251,7 @@ const [homeData, setHomeData] = useState({
                             </button>
                         </div>
                         {/* TIMELINE */}
+{/* TIMELINE */}
                         <div className="progress-container">
                             <span>{formatTime(progress)}</span>
                             <div className="progress-rail" onClick={handleSeek} style={{ position: 'relative', overflow: 'hidden' }}>
@@ -1274,6 +1275,8 @@ const [homeData, setHomeData] = useState({
                             </div>
                             <span>{formatTime(duration)}</span>
                         </div>
+                    </div> {/* <--- THIS IS THE MISSING CLOSING DIV FOR 'p-center' */}
+
                     <div className="p-right">
                         <button className={`btn-icon ${showLyrics?'active':''}`} onClick={fetchLyrics}><Icons.Mic/></button>
                         <button className={`btn-icon ${showQueue?'active':''}`} onClick={()=>setShowQueue(!showQueue)}><Icons.List/></button>
@@ -1293,6 +1296,8 @@ const [homeData, setHomeData] = useState({
                     <div className="mobile-controls" style={{display:'none'}}> 
                        <button className="btn-play-mobile" onClick={togglePlay}>{isPlaying ? <Icons.Pause/> : <Icons.Play/>}</button>
                     </div>
+                </>
+            )}
         </div>
 
         {/* BOTTOM NAV (Mobile) */}
