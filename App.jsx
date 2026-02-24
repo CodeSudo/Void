@@ -22,7 +22,6 @@ const Icons = {
   RepeatOne: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/><text x="10" y="15" fontSize="8" fill="currentColor" style={{fontWeight:'bold'}}>1</text></svg>,
   Radio: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"/></svg>,
   Back: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>,
-  // --- NEW ICONS FOR THEATER MODE ---
   Maximize: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>,
   Minimize: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>,
 };
@@ -140,37 +139,37 @@ const APIs = {
       }));
     }
   },
+  // --- REVERTED YOUTUBE INTEGRATION (Works perfectly with your current backend) ---
   youtube: {
     name: 'YouTube',
     apiBase: import.meta.env.VITE_YT_API_BASE || 'http://localhost:3000',
     
     search: async function(query) {
-      const cleanBase = this.apiBase.replace(/\/$/, '');
-      const res = await fetch(`${cleanBase}/api/stream?query=${encodeURIComponent(query)}`);
-      const data = await res.json();
-      
-      const formatItem = (item, type) => {
-          let highResImage = "https://via.placeholder.com/150";
-          if (item.thumbnails && item.thumbnails.length > 0) {
-             highResImage = item.thumbnails[item.thumbnails.length - 1].url;
-             highResImage = highResImage.replace(/=w\d+-h\d+.*/, '=w500-h500-l90-rj');
-          }
-          return {
-              id: item.videoId || item.albumId || item.browseId || item.artistId,
-              name: item.name || item.title,
-              primaryArtists: item.artists?.[0]?.name || (type === 'artist' ? 'Artist' : "YouTube"),
-              image: [{ url: highResImage }],
-              duration: item.duration || 0,
-              source: 'youtube',
-              type: type 
-          };
-      };
-
-      return {
-          songs: Array.isArray(data.songs) ? data.songs.map(i => formatItem(i, 'song')) : [],
-          albums: Array.isArray(data.albums) ? data.albums.map(i => formatItem(i, 'album')) : [],
-          artists: Array.isArray(data.artists) ? data.artists.map(i => formatItem(i, 'artist')) : []
-      };
+      try {
+          const cleanBase = this.apiBase.replace(/\/$/, '');
+          const res = await fetch(`${cleanBase}/api/stream?query=${encodeURIComponent(query)}`);
+          if (!res.ok) return [];
+          const data = await res.json();
+          
+          return (Array.isArray(data) ? data : []).map(item => {
+              let highResImage = "https://via.placeholder.com/150";
+              if (item.thumbnails && item.thumbnails.length > 0) {
+                 highResImage = item.thumbnails[item.thumbnails.length - 1].url;
+                 highResImage = highResImage.replace(/=w\d+-h\d+.*/, '=w500-h500-l90-rj');
+              }
+              return {
+                  id: item.videoId,
+                  name: item.name || item.title,
+                  primaryArtists: item.artists?.[0]?.name || "YouTube Artist",
+                  image: [{ url: highResImage }],
+                  duration: item.duration || 0,
+                  source: 'youtube'
+              };
+          });
+      } catch (err) {
+          console.error("YouTube Search Failed:", err);
+          return [];
+      }
     }
   }
 };
@@ -191,7 +190,7 @@ function App() {
   const [user, setUser] = useState(null);
   
   // Visual States
-  const [theaterMode, setTheaterMode] = useState(false); // NEW: Controls the full-screen view
+  const [theaterMode, setTheaterMode] = useState(false); 
   
   // Source State
   const [source, setSource] = useState('saavn');
@@ -362,12 +361,8 @@ function App() {
             fetch(`${API_BASE}/search/playlists?query=${encodeURIComponent(searchQuery)}`).then(r=>r.json())
           ]);
           setResSongs(s?.data?.results || []); setResAlbums(a?.data?.results || []); setResArtists(ar?.data?.results || []); setResPlaylists(p?.data?.results || []);
-      } else if (source === 'youtube') {
-          const ytData = await APIs.youtube.search(searchQuery);
-          setResSongs(ytData.songs || []);
-          setResAlbums(ytData.albums || []);
-          setResArtists(ytData.artists || []);
       } else {
+          // --- REVERTED: Just fetch the single array of songs for all other sources (including current YouTube API) ---
           const songs = await APIs[source].search(searchQuery);
           setResSongs(songs);
       }
@@ -439,20 +434,15 @@ function App() {
             return;
         }
     } 
-// 3. JioSaavn, Qobuz, Apple Music Routing
     else if (s.downloadUrl && Array.isArray(s.downloadUrl)) {
         let urlObj;
         if (quality === 'Premium') {
-            // Hunt for lossless audio (Qobuz), fallback to 320kbps (Saavn/Apple), or just take the highest available
             urlObj = s.downloadUrl.find(u => u.quality === 'lossless') || 
                      s.downloadUrl.find(u => u.quality === '320kbps') || 
                      s.downloadUrl[s.downloadUrl.length - 1];
         } else {
-            // Match exact quality (Low = 96kbps, Medium = 160kbps, High = 320kbps)
             urlObj = s.downloadUrl.find(u => u.quality === quality);
         }
-        
-        // Final safety fallback
         url = urlObj ? urlObj.url : (s.downloadUrl[s.downloadUrl.length-1]?.url || s.downloadUrl[0]?.url);
     }
 
@@ -573,26 +563,9 @@ function App() {
     else {
       setSelectedItem(item); setTab('details'); setLoading(true); setDetailsSongs([]);
       try {
-        if (item.source === 'youtube') {
-            const cleanBase = APIs.youtube.apiBase.replace(/\/$/, '');
-            let endpoint = itemType === 'album' 
-                ? `${cleanBase}/api/stream?albumId=${item.id}` 
-                : `${cleanBase}/api/stream?artistId=${item.id}`;
-                
-            const res = await fetch(endpoint).then(r=>r.json());
-            const tracks = res.songs || res.topSongs || [];
-            
-            const formattedSongs = tracks.map(s => ({
-                id: s.videoId, name: s.name || s.title, primaryArtists: s.artists?.[0]?.name || item.name,
-                image: s.thumbnails ? [{ url: s.thumbnails[s.thumbnails.length-1].url }] : item.image,
-                duration: s.duration || 0, source: 'youtube'
-            }));
-            setDetailsSongs(formattedSongs);
-        } else {
-            let endpoint = itemType === 'album' ? `${API_BASE}/albums?id=${item.id}` : itemType === 'artist' ? `${API_BASE}/artists?id=${item.id}` : `${API_BASE}/playlists?id=${item.id}`;
-            const res = await fetch(endpoint).then(r=>r.json());
-            if(res.success) setDetailsSongs(res.data.songs || res.data.topSongs || []);
-        }
+        let endpoint = itemType === 'album' ? `${API_BASE}/albums?id=${item.id}` : itemType === 'artist' ? `${API_BASE}/artists?id=${item.id}` : `${API_BASE}/playlists?id=${item.id}`;
+        const res = await fetch(endpoint).then(r=>r.json());
+        if(res.success) setDetailsSongs(res.data.songs || res.data.topSongs || []);
       } catch(e) { console.error(e); } finally { setLoading(false); }
     }
   };
@@ -749,7 +722,7 @@ function App() {
 
         {/* --- THEATER MODE FULLSCREEN OVERLAY --- */}
         <div style={{
-            position: 'absolute', top: 0, left: 0, right: 0, bottom: '90px', // Leaves room for player bar
+            position: 'absolute', top: 0, left: 0, right: 0, bottom: '90px', 
             zIndex: 50, background: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(40px)',
             display: theaterMode ? 'flex' : 'none', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
             opacity: theaterMode ? 1 : 0, transition: 'opacity 0.4s ease', pointerEvents: theaterMode ? 'all' : 'none'
@@ -1296,23 +1269,16 @@ function App() {
                                   audioRef.current.volume=e.target.value;
                                   if (ytPlayerRef.current?.setVolume) ytPlayerRef.current.setVolume(e.target.value * 100);
                                }}/>
-                      {/* --- NEW STYLED QUALITY SELECTOR --- */}
+                        
+                        {/* NEW STYLED QUALITY SELECTOR */}
                         <select 
                             className="quality-select" 
                             value={quality} 
                             onChange={e => handleQualityChange(e.target.value)}
                             style={{
-                                background: 'rgba(255, 255, 255, 0.15)', 
-                                color: 'white', 
-                                border: '1px solid rgba(255, 255, 255, 0.2)', 
-                                borderRadius: '20px', 
-                                padding: '6px 12px', 
-                                marginLeft: '15px', 
-                                cursor: 'pointer',
-                                outline: 'none',
-                                fontWeight: '600',
-                                fontSize: '0.75rem',
-                                backdropFilter: 'blur(10px)'
+                                background: 'rgba(255, 255, 255, 0.15)', color: 'white', border: '1px solid rgba(255, 255, 255, 0.2)', 
+                                borderRadius: '20px', padding: '6px 12px', marginLeft: '15px', cursor: 'pointer', outline: 'none',
+                                fontWeight: '600', fontSize: '0.75rem', backdropFilter: 'blur(10px)'
                             }}
                         >
                             <option value="96kbps" style={{color: 'black'}}>Low</option>
@@ -1320,9 +1286,9 @@ function App() {
                             <option value="320kbps" style={{color: 'black'}}>High</option>
                             <option value="Premium" style={{color: 'black'}}>Premium</option>
                         </select>
-                        
+
                         {/* THEATER MODE TOGGLE */}
-                        <button className="btn-icon" onClick={() => setTheaterMode(!theaterMode)} style={{marginLeft: '10px'}}>
+                        <button className="btn-icon" onClick={() => setTheaterMode(!theaterMode)} style={{marginLeft: '15px'}}>
                             {theaterMode ? <Icons.Minimize/> : <Icons.Maximize/>}
                         </button>
                     </div>
