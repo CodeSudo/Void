@@ -700,7 +700,6 @@ function App() {
         <Toaster position="top-center" toastOptions={{style:{background:'#333', color:'#fff'}}}/>
 
         {/* --- INJECTED GLASSMORPHISM CSS --- */}
-{/* --- INJECTED GLASSMORPHISM & RESPONSIVE CSS --- */}
         <style>{`
           .app-layout { background: transparent !important; }
           .main-content { background: rgba(0, 0, 0, 0.5) !important; border-left: 1px solid rgba(255,255,255,0.05); }
@@ -708,13 +707,6 @@ function App() {
           .card { background: rgba(255, 255, 255, 0.05) !important; backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.05); }
           .header { background: transparent !important; }
           .player-bar { background: rgba(10, 10, 10, 0.85) !important; backdrop-filter: blur(30px); border-top: 1px solid rgba(255,255,255,0.05); }
-          
-          /* --- RESPONSIVE PLAYER BAR FIXES --- */
-          .mobile-controls { display: none; }
-          @media (max-width: 768px) {
-              .p-center, .p-right { display: none !important; }
-              .mobile-controls { display: flex !important; align-items: center; gap: 12px; }
-          }
         `}</style>
 
         {/* --- DYNAMIC AMBIENT BACKGROUND --- */}
@@ -1225,41 +1217,49 @@ function App() {
             </div>
         </div>
 
-{/* --- PLAYER BAR --- */}
+        {/* --- PLAYER BAR --- */}
         <div className={`player-bar ${currentSong ? 'visible' : ''}`} style={{transform: currentSong ? 'translateY(0)' : 'translateY(200px)', transition:'transform 0.3s', zIndex: 100}}>
             {currentSong && (
                 <>
-                    {/* 1. Track Info */}
                     <div className="p-track" onClick={() => setTheaterMode(!theaterMode)} style={{cursor: 'pointer'}}>
                         <img src={getImg(currentSong.image)} alt="" style={{ transition: 'transform 0.2s ease' }} onMouseOver={e => e.currentTarget.style.transform='scale(1.1)'} onMouseOut={e => e.currentTarget.style.transform='scale(1)'} />
                         <div style={{overflow: 'hidden'}}>
                             <h4 style={{fontSize:'0.9rem', color:'white', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>{getName(currentSong)}</h4>
                             <p style={{fontSize:'0.8rem', color:'#aaa', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>{getDesc(currentSong)}</p>
                         </div>
+                        {isPlaying && <div className="visualizer"><div className="bar"/><div className="bar"/><div className="bar"/><div className="bar"/></div>}
                     </div>
                     
-                    {/* 2. Desktop Center Controls */}
                     <div className="p-center">
                         <div className="p-controls">
                             <button className={`btn-icon ${isShuffle?'active':''}`} onClick={toggleShuffle}><Icons.Shuffle/></button>
-                            <button className="btn-icon" onClick={(e)=>{e.stopPropagation(); playSong(queue, qIndex-1)}}><Icons.SkipBack/></button>
-                            <button className="btn-play" onClick={(e)=>{e.stopPropagation(); togglePlay()}}>{isPlaying ? <Icons.Pause/> : <Icons.Play/>}</button>
-                            <button className="btn-icon" onClick={(e)=>{e.stopPropagation(); playSong(queue, qIndex+1)}}><Icons.SkipFwd/></button>
+                            <button className="btn-icon" onClick={()=>playSong(queue, qIndex-1)}><Icons.SkipBack/></button>
+                            <button className="btn-play" onClick={togglePlay}>{isPlaying ? <Icons.Pause/> : <Icons.Play/>}</button>
+                            <button className="btn-icon" onClick={()=>playSong(queue, qIndex+1)}><Icons.SkipFwd/></button>
                             <button className={`btn-icon ${repeatMode!=='none'?'active':''}`} onClick={toggleRepeat}>
                                 {repeatMode==='one' ? <Icons.RepeatOne/> : <Icons.Repeat/>}
                             </button>
                         </div>
+                        {/* TIMELINE */}
                         <div className="progress-container">
                             <span>{formatTime(progress)}</span>
                             <div className="progress-rail" onClick={handleSeek} style={{ position: 'relative', overflow: 'hidden' }}>
-                                <div className="progress-fill" style={{ position: 'absolute', top: 0, left: 0, height: '100%', background: 'rgba(255, 255, 255, 0.3)', width: `${duration > 0 ? (bufferProgress / duration) * 100 : 0}%`, transition: 'width 0.2s ease', pointerEvents: 'none' }}></div>
-                                <div className="progress-fill" style={{ position: 'absolute', top: 0, left: 0, height: '100%', width: `${duration > 0 ? (progress / duration) * 100 : 0}%`, pointerEvents: 'none' }}></div>
+                                {/* Transparent buffer bar */}
+                                <div className="progress-fill" style={{
+                                    position: 'absolute', top: 0, left: 0, height: '100%',
+                                    background: 'rgba(255, 255, 255, 0.3)', width: `${duration > 0 ? (bufferProgress / duration) * 100 : 0}%`,
+                                    transition: 'width 0.2s ease', pointerEvents: 'none'
+                                }}></div>
+                                {/* Active progress bar */}
+                                <div className="progress-fill" style={{
+                                    position: 'absolute', top: 0, left: 0, height: '100%',
+                                    width: `${duration > 0 ? (progress / duration) * 100 : 0}%`, pointerEvents: 'none'
+                                }}></div>
                             </div>
                             <span>{formatTime(duration)}</span>
                         </div>
                     </div> 
 
-                    {/* 3. Desktop Right Controls */}
                     <div className="p-right">
                         <button className={`btn-icon ${showLyrics?'active':''}`} onClick={fetchLyrics}><Icons.Mic/></button>
                         <button className={`btn-icon ${showQueue?'active':''}`} onClick={()=>setShowQueue(!showQueue)}><Icons.List/></button>
@@ -1270,9 +1270,16 @@ function App() {
                                   if (ytPlayerRef.current?.setVolume) ytPlayerRef.current.setVolume(e.target.value * 100);
                                }}/>
                         
+                        {/* NEW STYLED QUALITY SELECTOR */}
                         <select 
-                            className="quality-select" value={quality} onChange={e => handleQualityChange(e.target.value)}
-                            style={{ background: 'rgba(255, 255, 255, 0.15)', color: 'white', border: '1px solid rgba(255, 255, 255, 0.2)', borderRadius: '20px', padding: '6px 12px', marginLeft: '15px', cursor: 'pointer', outline: 'none', fontWeight: '600', fontSize: '0.75rem', backdropFilter: 'blur(10px)' }}
+                            className="quality-select" 
+                            value={quality} 
+                            onChange={e => handleQualityChange(e.target.value)}
+                            style={{
+                                background: 'rgba(255, 255, 255, 0.15)', color: 'white', border: '1px solid rgba(255, 255, 255, 0.2)', 
+                                borderRadius: '20px', padding: '6px 12px', marginLeft: '15px', cursor: 'pointer', outline: 'none',
+                                fontWeight: '600', fontSize: '0.75rem', backdropFilter: 'blur(10px)'
+                            }}
                         >
                             <option value="96kbps" style={{color: 'black'}}>Low</option>
                             <option value="160kbps" style={{color: 'black'}}>Medium</option>
@@ -1280,17 +1287,28 @@ function App() {
                             <option value="Premium" style={{color: 'black'}}>Premium</option>
                         </select>
 
+                        {/* THEATER MODE TOGGLE */}
                         <button className="btn-icon" onClick={() => setTheaterMode(!theaterMode)} style={{marginLeft: '15px'}}>
                             {theaterMode ? <Icons.Minimize/> : <Icons.Maximize/>}
                         </button>
                     </div>
 
-                    {/* 4. Mobile Controls (Hidden on Desktop) */}
-                    <div className="mobile-controls"> 
-                       <button className="btn-icon" onClick={(e)=>{e.stopPropagation(); playSong(queue, qIndex-1)}}><Icons.SkipBack/></button>
-                       <button className="btn-play-mobile" onClick={(e)=>{e.stopPropagation(); togglePlay()}} style={{background: '#d4acfb', color: 'black', border: 'none', borderRadius: '50%', width: '45px', height: '45px', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>{isPlaying ? <Icons.Pause/> : <Icons.Play/>}</button>
-                       <button className="btn-icon" onClick={(e)=>{e.stopPropagation(); playSong(queue, qIndex+1)}}><Icons.SkipFwd/></button>
+                    <div className="mobile-controls" style={{display:'none'}}> 
+                       <button className="btn-play-mobile" onClick={togglePlay}>{isPlaying ? <Icons.Pause/> : <Icons.Play/>}</button>
                     </div>
                 </>
             )}
         </div>
+
+        {/* BOTTOM NAV (Mobile) */}
+        <div className="bottom-nav">
+            <div className={`nav-tab ${tab==='home'?'active':''}`} onClick={()=>setTab('home')}><Icons.Home/> Home</div>
+            <div className={`nav-tab ${tab==='search'?'active':''}`} onClick={()=>setTab('search')}><Icons.Search/> Search</div>
+            <div className={`nav-tab ${tab==='library'?'active':''}`} onClick={()=>setTab('library')}><Icons.Library/> Library</div>
+            <div className={`nav-tab ${tab==='profile'?'active':''}`} onClick={()=>setTab('profile')}><Icons.Profile/> Profile</div>
+        </div>
+    </div>
+  );
+}
+
+export default App;
