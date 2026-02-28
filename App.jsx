@@ -1221,7 +1221,7 @@ function App() {
         <div className={`player-bar ${currentSong ? 'visible' : ''}`} style={{transform: currentSong ? 'translateY(0)' : 'translateY(200px)', transition:'transform 0.3s', zIndex: 100}}>
             {currentSong && (
                 <>
-                    {/* 1. Track Info (Visualizer Removed) */}
+                    {/* 1. Track Info */}
                     <div className="p-track" onClick={() => setTheaterMode(!theaterMode)} style={{cursor: 'pointer'}}>
                         <img src={getImg(currentSong.image)} alt="" style={{ transition: 'transform 0.2s ease' }} onMouseOver={e => e.currentTarget.style.transform='scale(1.1)'} onMouseOut={e => e.currentTarget.style.transform='scale(1)'} />
                         <div style={{overflow: 'hidden'}}>
@@ -1241,21 +1241,11 @@ function App() {
                                 {repeatMode==='one' ? <Icons.RepeatOne/> : <Icons.Repeat/>}
                             </button>
                         </div>
-                        {/* TIMELINE */}
                         <div className="progress-container">
                             <span>{formatTime(progress)}</span>
                             <div className="progress-rail" onClick={handleSeek} style={{ position: 'relative', overflow: 'hidden' }}>
-                                {/* Transparent buffer bar */}
-                                <div className="progress-fill" style={{
-                                    position: 'absolute', top: 0, left: 0, height: '100%',
-                                    background: 'rgba(255, 255, 255, 0.3)', width: `${duration > 0 ? (bufferProgress / duration) * 100 : 0}%`,
-                                    transition: 'width 0.2s ease', pointerEvents: 'none'
-                                }}></div>
-                                {/* Active progress bar */}
-                                <div className="progress-fill" style={{
-                                    position: 'absolute', top: 0, left: 0, height: '100%',
-                                    width: `${duration > 0 ? (progress / duration) * 100 : 0}%`, pointerEvents: 'none'
-                                }}></div>
+                                <div className="progress-fill" style={{ position: 'absolute', top: 0, left: 0, height: '100%', background: 'rgba(255, 255, 255, 0.3)', width: `${duration > 0 ? (bufferProgress / duration) * 100 : 0}%`, transition: 'width 0.2s ease', pointerEvents: 'none' }}></div>
+                                <div className="progress-fill" style={{ position: 'absolute', top: 0, left: 0, height: '100%', width: `${duration > 0 ? (progress / duration) * 100 : 0}%`, pointerEvents: 'none' }}></div>
                             </div>
                             <span>{formatTime(duration)}</span>
                         </div>
@@ -1273,14 +1263,8 @@ function App() {
                                }}/>
                         
                         <select 
-                            className="quality-select" 
-                            value={quality} 
-                            onChange={e => handleQualityChange(e.target.value)}
-                            style={{
-                                background: 'rgba(255, 255, 255, 0.15)', color: 'white', border: '1px solid rgba(255, 255, 255, 0.2)', 
-                                borderRadius: '20px', padding: '6px 12px', marginLeft: '15px', cursor: 'pointer', outline: 'none',
-                                fontWeight: '600', fontSize: '0.75rem', backdropFilter: 'blur(10px)'
-                            }}
+                            className="quality-select" value={quality} onChange={e => handleQualityChange(e.target.value)}
+                            style={{ background: 'rgba(255, 255, 255, 0.15)', color: 'white', border: '1px solid rgba(255, 255, 255, 0.2)', borderRadius: '20px', padding: '6px 12px', marginLeft: '15px', cursor: 'pointer', outline: 'none', fontWeight: '600', fontSize: '0.75rem', backdropFilter: 'blur(10px)' }}
                         >
                             <option value="96kbps" style={{color: 'black'}}>Low</option>
                             <option value="160kbps" style={{color: 'black'}}>Medium</option>
@@ -1293,25 +1277,12 @@ function App() {
                         </button>
                     </div>
 
-                    {/* 4. MOBILE CONTROLS (Updated with Prev, Play/Pause, Next) */}
+                    {/* 4. Mobile Controls (Hidden on Desktop) */}
                     <div className="mobile-controls"> 
                        <button className="btn-icon" onClick={(e)=>{e.stopPropagation(); playSong(queue, qIndex-1)}}><Icons.SkipBack/></button>
-                       <button className="btn-play-mobile" onClick={(e)=>{e.stopPropagation(); togglePlay()}}>{isPlaying ? <Icons.Pause/> : <Icons.Play/>}</button>
+                       <button className="btn-play-mobile" onClick={(e)=>{e.stopPropagation(); togglePlay()}} style={{background: '#d4acfb', color: 'black', border: 'none', borderRadius: '50%', width: '45px', height: '45px', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>{isPlaying ? <Icons.Pause/> : <Icons.Play/>}</button>
                        <button className="btn-icon" onClick={(e)=>{e.stopPropagation(); playSong(queue, qIndex+1)}}><Icons.SkipFwd/></button>
                     </div>
                 </>
             )}
         </div>
-
-        {/* BOTTOM NAV (Mobile) */}
-        <div className="bottom-nav">
-            <div className={`nav-tab ${tab==='home'?'active':''}`} onClick={()=>setTab('home')}><Icons.Home/> Home</div>
-            <div className={`nav-tab ${tab==='search'?'active':''}`} onClick={()=>setTab('search')}><Icons.Search/> Search</div>
-            <div className={`nav-tab ${tab==='library'?'active':''}`} onClick={()=>setTab('library')}><Icons.Library/> Library</div>
-            <div className={`nav-tab ${tab==='profile'?'active':''}`} onClick={()=>setTab('profile')}><Icons.Profile/> Profile</div>
-        </div>
-    </div>
-  );
-}
-
-export default App;
