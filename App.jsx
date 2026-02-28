@@ -700,6 +700,7 @@ function App() {
         <Toaster position="top-center" toastOptions={{style:{background:'#333', color:'#fff'}}}/>
 
         {/* --- INJECTED GLASSMORPHISM CSS --- */}
+{/* --- INJECTED GLASSMORPHISM & RESPONSIVE CSS --- */}
         <style>{`
           .app-layout { background: transparent !important; }
           .main-content { background: rgba(0, 0, 0, 0.5) !important; border-left: 1px solid rgba(255,255,255,0.05); }
@@ -707,6 +708,13 @@ function App() {
           .card { background: rgba(255, 255, 255, 0.05) !important; backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.05); }
           .header { background: transparent !important; }
           .player-bar { background: rgba(10, 10, 10, 0.85) !important; backdrop-filter: blur(30px); border-top: 1px solid rgba(255,255,255,0.05); }
+          
+          /* --- RESPONSIVE PLAYER BAR FIXES --- */
+          .mobile-controls { display: none; }
+          @media (max-width: 768px) {
+              .p-center, .p-right { display: none !important; }
+              .mobile-controls { display: flex !important; align-items: center; gap: 12px; }
+          }
         `}</style>
 
         {/* --- DYNAMIC AMBIENT BACKGROUND --- */}
