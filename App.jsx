@@ -699,7 +699,7 @@ function App() {
     <div className="app-layout">
         <Toaster position="top-center" toastOptions={{style:{background:'#333', color:'#fff'}}}/>
 
-        {/* --- INJECTED GLASSMORPHISM CSS --- */}
+{/* --- INJECTED GLASSMORPHISM & RESPONSIVE CSS --- */}
         <style>{`
           .app-layout { background: transparent !important; }
           .main-content { background: rgba(0, 0, 0, 0.5) !important; border-left: 1px solid rgba(255,255,255,0.05); }
@@ -707,6 +707,25 @@ function App() {
           .card { background: rgba(255, 255, 255, 0.05) !important; backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.05); }
           .header { background: transparent !important; }
           .player-bar { background: rgba(10, 10, 10, 0.85) !important; backdrop-filter: blur(30px); border-top: 1px solid rgba(255,255,255,0.05); }
+          
+          /* --- RESPONSIVE PLAYER BAR FIXES --- */
+          .mobile-controls { display: none; }
+          @media (max-width: 768px) {
+              .p-center, .p-right { display: none !important; }
+              .mobile-controls { display: flex !important; align-items: center; gap: 12px; }
+          }
+
+          /* --- NEW: DISC PLAYER ANIMATION --- */
+          @keyframes spinRecord {
+              from { transform: rotate(0deg); }
+              to { transform: rotate(360deg); }
+          }
+          .spin-anim {
+              animation: spinRecord 6s linear infinite;
+          }
+          .spin-paused {
+              animation-play-state: paused;
+          }
         `}</style>
 
         {/* --- DYNAMIC AMBIENT BACKGROUND --- */}
@@ -720,7 +739,7 @@ function App() {
             }} />
         )}
 
-        {/* --- THEATER MODE FULLSCREEN OVERLAY --- */}
+{/* --- THEATER MODE FULLSCREEN OVERLAY --- */}
         <div style={{
             position: 'absolute', top: 0, left: 0, right: 0, bottom: '90px', 
             zIndex: 50, background: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(40px)',
@@ -729,10 +748,28 @@ function App() {
         }}>
             {currentSong && (
                 <>
-                    <img src={getImg(currentSong.image)} alt="" style={{
-                        width: '45vh', height: '45vh', borderRadius: '24px',
-                        boxShadow: '0 30px 60px rgba(0,0,0,0.6)', marginBottom: '40px', objectFit: 'cover'
-                    }}/>
+                    {/* --- THE FRAMER-STYLE VINYL RECORD --- */}
+                    <div 
+                        className={`spin-anim ${!isPlaying ? 'spin-paused' : ''}`}
+                        style={{
+                            width: '45vh', height: '45vh', borderRadius: '50%', marginBottom: '40px',
+                            background: 'radial-gradient(circle, #222 0%, #050505 100%)', // Black Vinyl Base
+                            boxShadow: '0 30px 60px rgba(0,0,0,0.8), inset 0 0 0 10px #111, inset 0 0 0 12px #222', // Grooves
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative'
+                        }}
+                    >
+                        {/* Center Album Art */}
+                        <img src={getImg(currentSong.image)} alt="" style={{
+                            width: '40%', height: '40%', objectFit: 'cover', borderRadius: '50%',
+                            boxShadow: '0 0 0 4px #000'
+                        }}/>
+                        {/* Spindle Hole */}
+                        <div style={{
+                            position: 'absolute', width: '15px', height: '15px', 
+                            background: '#111', borderRadius: '50%', border: '1px solid #333'
+                        }}></div>
+                    </div>
+
                     <h1 style={{fontSize: '3.5rem', color: 'white', fontWeight: 800, textAlign: 'center', margin: '0 0 10px 0', textShadow: '0 4px 20px rgba(0,0,0,0.5)'}}>
                         {getName(currentSong)}
                     </h1>
@@ -1217,17 +1254,29 @@ function App() {
             </div>
         </div>
 
-        {/* --- PLAYER BAR --- */}
+{/* --- PLAYER BAR --- */}
         <div className={`player-bar ${currentSong ? 'visible' : ''}`} style={{transform: currentSong ? 'translateY(0)' : 'translateY(200px)', transition:'transform 0.3s', zIndex: 100}}>
             {currentSong && (
                 <>
+                    {/* 1. Track Info (With Mini DiscPlayer) */}
                     <div className="p-track" onClick={() => setTheaterMode(!theaterMode)} style={{cursor: 'pointer'}}>
-                        <img src={getImg(currentSong.image)} alt="" style={{ transition: 'transform 0.2s ease' }} onMouseOver={e => e.currentTarget.style.transform='scale(1.1)'} onMouseOut={e => e.currentTarget.style.transform='scale(1)'} />
+                        
+                        {/* Mini Spinning Disc */}
+                        <div style={{ position: 'relative', width: '45px', height: '45px', flexShrink: 0, marginRight: '10px' }}>
+                            <img 
+                                src={getImg(currentSong.image)} 
+                                alt="" 
+                                className={`spin-anim ${!isPlaying ? 'spin-paused' : ''}`}
+                                style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%', boxShadow: '0 0 0 3px #111' }} 
+                            />
+                            {/* Spindle hole */}
+                            <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '8px', height: '8px', background: '#222', borderRadius: '50%' }}></div>
+                        </div>
+
                         <div style={{overflow: 'hidden'}}>
                             <h4 style={{fontSize:'0.9rem', color:'white', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>{getName(currentSong)}</h4>
                             <p style={{fontSize:'0.8rem', color:'#aaa', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>{getDesc(currentSong)}</p>
                         </div>
-                        {isPlaying && <div className="visualizer"><div className="bar"/><div className="bar"/><div className="bar"/><div className="bar"/></div>}
                     </div>
                     
                     <div className="p-center">
