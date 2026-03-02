@@ -1260,8 +1260,6 @@ function App() {
                 <>
                     {/* 1. Track Info (With Mini DiscPlayer) */}
                     <div className="p-track" onClick={() => setTheaterMode(!theaterMode)} style={{cursor: 'pointer'}}>
-                        
-                        {/* Mini Spinning Disc */}
                         <div style={{ position: 'relative', width: '45px', height: '45px', flexShrink: 0, marginRight: '10px' }}>
                             <img 
                                 src={getImg(currentSong.image)} 
@@ -1269,6 +1267,73 @@ function App() {
                                 className={`spin-anim ${!isPlaying ? 'spin-paused' : ''}`}
                                 style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%', boxShadow: '0 0 0 3px #111' }} 
                             />
+                            <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '8px', height: '8px', background: '#222', borderRadius: '50%' }}></div>
+                        </div>
+
+                        <div style={{overflow: 'hidden'}}>
+                            <h4 style={{fontSize:'0.9rem', color:'white', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', margin: 0}}>{getName(currentSong)}</h4>
+                            <p style={{fontSize:'0.8rem', color:'#aaa', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', margin: 0}}>{getDesc(currentSong)}</p>
+                        </div>
+                    </div>
+                    
+                    {/* 2. Desktop Center Controls */}
+                    <div className="p-center">
+                        <div className="p-controls">
+                            <button className={`btn-icon ${isShuffle?'active':''}`} onClick={toggleShuffle}><Icons.Shuffle/></button>
+                            <button className="btn-icon" onClick={(e)=>{e.stopPropagation(); playSong(queue, qIndex-1)}}><Icons.SkipBack/></button>
+                            <button className="btn-play" onClick={(e)=>{e.stopPropagation(); togglePlay()}}>{isPlaying ? <Icons.Pause/> : <Icons.Play/>}</button>
+                            <button className="btn-icon" onClick={(e)=>{e.stopPropagation(); playSong(queue, qIndex+1)}}><Icons.SkipFwd/></button>
+                            <button className={`btn-icon ${repeatMode!=='none'?'active':''}`} onClick={toggleRepeat}>
+                                {repeatMode==='one' ? <Icons.RepeatOne/> : <Icons.Repeat/>}
+                            </button>
+                        </div>
+                        <div className="progress-container">
+                            <span>{formatTime(progress)}</span>
+                            <div className="progress-rail" onClick={handleSeek} style={{ position: 'relative', overflow: 'hidden' }}>
+                                <div className="progress-fill" style={{ position: 'absolute', top: 0, left: 0, height: '100%', background: 'rgba(255, 255, 255, 0.3)', width: `${duration > 0 ? (bufferProgress / duration) * 100 : 0}%`, transition: 'width 0.2s ease', pointerEvents: 'none' }}></div>
+                                <div className="progress-fill" style={{ position: 'absolute', top: 0, left: 0, height: '100%', width: `${duration > 0 ? (progress / duration) * 100 : 0}%`, pointerEvents: 'none' }}></div>
+                            </div>
+                            <span>{formatTime(duration)}</span>
+                        </div>
+                    </div> 
+
+                    {/* 3. Desktop Right Controls */}
+                    <div className="p-right">
+                        <button className={`btn-icon ${showLyrics?'active':''}`} onClick={fetchLyrics}><Icons.Mic/></button>
+                        <button className={`btn-icon ${showQueue?'active':''}`} onClick={()=>setShowQueue(!showQueue)}><Icons.List/></button>
+                        <input type="range" className="volume-slider" min="0" max="1" step="0.1" value={volume} 
+                               onChange={e => {
+                                  setVolume(e.target.value); 
+                                  audioRef.current.volume=e.target.value;
+                                  if (ytPlayerRef.current?.setVolume) ytPlayerRef.current.setVolume(e.target.value * 100);
+                               }}/>
+                        
+                        <select 
+                            className="quality-select" value={quality} onChange={e => handleQualityChange(e.target.value)}
+                            style={{ background: 'rgba(255, 255, 255, 0.15)', color: 'white', border: '1px solid rgba(255, 255, 255, 0.2)', borderRadius: '20px', padding: '6px 12px', marginLeft: '15px', cursor: 'pointer', outline: 'none', fontWeight: '600', fontSize: '0.75rem', backdropFilter: 'blur(10px)' }}
+                        >
+                            <option value="96kbps" style={{color: 'black'}}>Low</option>
+                            <option value="160kbps" style={{color: 'black'}}>Medium</option>
+                            <option value="320kbps" style={{color: 'black'}}>High</option>
+                            <option value="Premium" style={{color: 'black'}}>Premium</option>
+                        </select>
+
+                        <button className="btn-icon" onClick={() => setTheaterMode(!theaterMode)} style={{marginLeft: '15px'}}>
+                            {theaterMode ? <Icons.Minimize/> : <Icons.Maximize/>}
+                        </button>
+                    </div>
+
+                    {/* 4. MOBILE CONTROLS (Fully visible with proper spacing) */}
+                    <div className="mobile-controls"> 
+                       <button className="btn-icon" onClick={(e)=>{e.stopPropagation(); playSong(queue, qIndex-1)}} style={{color: 'white', padding: 0, background: 'transparent', border: 'none'}}><Icons.SkipBack/></button>
+                       <button className="btn-play-mobile" onClick={(e)=>{e.stopPropagation(); togglePlay()}} style={{background: '#d4acfb', color: 'black', border: 'none', borderRadius: '50%', width: '45px', height: '45px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0}}>
+                           {isPlaying ? <Icons.Pause/> : <Icons.Play/>}
+                       </button>
+                       <button className="btn-icon" onClick={(e)=>{e.stopPropagation(); playSong(queue, qIndex+1)}} style={{color: 'white', padding: 0, background: 'transparent', border: 'none'}}><Icons.SkipFwd/></button>
+                    </div>
+                </>
+            )}
+        </div>
                             {/* Spindle hole */}
                             <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '8px', height: '8px', background: '#222', borderRadius: '50%' }}></div>
                         </div>
