@@ -1323,92 +1323,13 @@ function App() {
                         </button>
                     </div>
 
-                    {/* 4. MOBILE CONTROLS (Fully visible with proper spacing) */}
+                    {/* 4. MOBILE CONTROLS */}
                     <div className="mobile-controls"> 
                        <button className="btn-icon" onClick={(e)=>{e.stopPropagation(); playSong(queue, qIndex-1)}} style={{color: 'white', padding: 0, background: 'transparent', border: 'none'}}><Icons.SkipBack/></button>
                        <button className="btn-play-mobile" onClick={(e)=>{e.stopPropagation(); togglePlay()}} style={{background: '#d4acfb', color: 'black', border: 'none', borderRadius: '50%', width: '45px', height: '45px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0}}>
                            {isPlaying ? <Icons.Pause/> : <Icons.Play/>}
                        </button>
                        <button className="btn-icon" onClick={(e)=>{e.stopPropagation(); playSong(queue, qIndex+1)}} style={{color: 'white', padding: 0, background: 'transparent', border: 'none'}}><Icons.SkipFwd/></button>
-                    </div>
-                </>
-            )}
-        </div>
-                            {/* Spindle hole */}
-                            <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '8px', height: '8px', background: '#222', borderRadius: '50%' }}></div>
-                        </div>
-
-                        <div style={{overflow: 'hidden'}}>
-                            <h4 style={{fontSize:'0.9rem', color:'white', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>{getName(currentSong)}</h4>
-                            <p style={{fontSize:'0.8rem', color:'#aaa', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>{getDesc(currentSong)}</p>
-                        </div>
-                    </div>
-                    
-                    <div className="p-center">
-                        <div className="p-controls">
-                            <button className={`btn-icon ${isShuffle?'active':''}`} onClick={toggleShuffle}><Icons.Shuffle/></button>
-                            <button className="btn-icon" onClick={()=>playSong(queue, qIndex-1)}><Icons.SkipBack/></button>
-                            <button className="btn-play" onClick={togglePlay}>{isPlaying ? <Icons.Pause/> : <Icons.Play/>}</button>
-                            <button className="btn-icon" onClick={()=>playSong(queue, qIndex+1)}><Icons.SkipFwd/></button>
-                            <button className={`btn-icon ${repeatMode!=='none'?'active':''}`} onClick={toggleRepeat}>
-                                {repeatMode==='one' ? <Icons.RepeatOne/> : <Icons.Repeat/>}
-                            </button>
-                        </div>
-                        {/* TIMELINE */}
-                        <div className="progress-container">
-                            <span>{formatTime(progress)}</span>
-                            <div className="progress-rail" onClick={handleSeek} style={{ position: 'relative', overflow: 'hidden' }}>
-                                {/* Transparent buffer bar */}
-                                <div className="progress-fill" style={{
-                                    position: 'absolute', top: 0, left: 0, height: '100%',
-                                    background: 'rgba(255, 255, 255, 0.3)', width: `${duration > 0 ? (bufferProgress / duration) * 100 : 0}%`,
-                                    transition: 'width 0.2s ease', pointerEvents: 'none'
-                                }}></div>
-                                {/* Active progress bar */}
-                                <div className="progress-fill" style={{
-                                    position: 'absolute', top: 0, left: 0, height: '100%',
-                                    width: `${duration > 0 ? (progress / duration) * 100 : 0}%`, pointerEvents: 'none'
-                                }}></div>
-                            </div>
-                            <span>{formatTime(duration)}</span>
-                        </div>
-                    </div> 
-
-                    <div className="p-right">
-                        <button className={`btn-icon ${showLyrics?'active':''}`} onClick={fetchLyrics}><Icons.Mic/></button>
-                        <button className={`btn-icon ${showQueue?'active':''}`} onClick={()=>setShowQueue(!showQueue)}><Icons.List/></button>
-                        <input type="range" className="volume-slider" min="0" max="1" step="0.1" value={volume} 
-                               onChange={e => {
-                                  setVolume(e.target.value); 
-                                  audioRef.current.volume=e.target.value;
-                                  if (ytPlayerRef.current?.setVolume) ytPlayerRef.current.setVolume(e.target.value * 100);
-                               }}/>
-                        
-                        {/* NEW STYLED QUALITY SELECTOR */}
-                        <select 
-                            className="quality-select" 
-                            value={quality} 
-                            onChange={e => handleQualityChange(e.target.value)}
-                            style={{
-                                background: 'rgba(255, 255, 255, 0.15)', color: 'white', border: '1px solid rgba(255, 255, 255, 0.2)', 
-                                borderRadius: '20px', padding: '6px 12px', marginLeft: '15px', cursor: 'pointer', outline: 'none',
-                                fontWeight: '600', fontSize: '0.75rem', backdropFilter: 'blur(10px)'
-                            }}
-                        >
-                            <option value="96kbps" style={{color: 'black'}}>Low</option>
-                            <option value="160kbps" style={{color: 'black'}}>Medium</option>
-                            <option value="320kbps" style={{color: 'black'}}>High</option>
-                            <option value="Premium" style={{color: 'black'}}>Premium</option>
-                        </select>
-
-                        {/* THEATER MODE TOGGLE */}
-                        <button className="btn-icon" onClick={() => setTheaterMode(!theaterMode)} style={{marginLeft: '15px'}}>
-                            {theaterMode ? <Icons.Minimize/> : <Icons.Maximize/>}
-                        </button>
-                    </div>
-
-                    <div className="mobile-controls" style={{display:'none'}}> 
-                       <button className="btn-play-mobile" onClick={togglePlay}>{isPlaying ? <Icons.Pause/> : <Icons.Play/>}</button>
                     </div>
                 </>
             )}
