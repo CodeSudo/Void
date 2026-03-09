@@ -178,6 +178,62 @@ const APIs = {
   }
 };
 
+// --- UNIVERSAL TEXT IMPORTER ---
+  const [showTextImportModal, setShowTextImportModal] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [importProgress, setImportProgress] = useState({ current: 0, total: 0, status: 'idle' });
+
+  const handleTextImport = async () => {
+    if (!importText.trim()) return;
+    
+    // Split text by new lines to get song list
+    const lines = importText.split('\n').filter(line => line.trim().length > 0);
+    setImportProgress({ current: 0, total: lines.length, status: 'converting' });
+    
+    const matchedSongs = [];
+
+    for (let i = 0; i < lines.length; i++) {
+      const query = lines[i].trim();
+      // Skip empty lines or lines that are just numbers (like "1.")
+      if (!query || query.length < 2) continue;
+
+      setImportProgress({ current: i + 1, total: lines.length, status: 'converting' });
+      
+      try {
+        // Search Void engine for the song name
+        const results = await APIs.youtube.search(query);
+        if (results.songs && results.songs.length > 0) {
+          matchedSongs.push(results.songs[0]); // Add top match
+        }
+      } catch (e) {
+        console.warn(`Could not match: ${query}`);
+      }
+      
+      // Tiny delay to be nice to the API
+      await new Promise(r => setTimeout(r, 100));
+    }
+
+    // Save to Firebase
+    if (matchedSongs.length > 0) {
+      try {
+          const ref = collection(db, `users/${user.uid}/playlists`);
+          await addDoc(ref, { 
+            name: `Imported Playlist ${new Date().toLocaleDateString()}`, 
+            songs: matchedSongs 
+          });
+          toast.success(`Successfully imported ${matchedSongs.length} songs!`);
+          setShowTextImportModal(false);
+          setImportText("");
+      } catch(e) {
+          toast.error("Failed to save playlist");
+      }
+    } else {
+      toast.error("No songs found. Check your spelling.");
+    }
+    
+    setImportProgress({ current: 0, total: 0, status: 'idle' });
+  };
+
 const MOODS = [
   { id: 'm1', name: 'Party', color: '#e57373', query: 'Party Hits' },
   { id: 'm2', name: 'Romance', color: '#f06292', query: 'Love Songs' },
@@ -726,6 +782,62 @@ function App() {
         </div>
     </div>
   );
+
+  {/* UNIVERSAL TEXT IMPORT MODAL */}
+        {showTextImportModal && (
+            <div className="modal-overlay">
+                <div className="modal-box" style={{maxWidth: '500px'}}>
+                    <h2>Import Songs</h2>
+                    <p style={{color:'#aaa', fontSize:'0.9rem', marginBottom:'20px'}}>
+                        Paste a list of songs (one per line). <br/>
+                        Example:<br/>
+                        <i>Starboy - The Weeknd<br/>
+                        Shape of You - Ed Sheeran</i>
+                    </p>
+                    
+                    {importProgress.status === 'idle' ? (
+                        <>
+                            <textarea 
+                                className="modal-input" 
+                                placeholder="Paste your song list here..." 
+                                value={importText} 
+                                onChange={e=>setImportText(e.target.value)}
+                                style={{minHeight: '200px', resize: 'vertical', fontFamily: 'monospace'}}
+                            />
+                            <div className="modal-actions">
+                                <button className="btn-cancel" onClick={()=>setShowTextImportModal(false)}>Cancel</button>
+                                <button className="btn-confirm" onClick={handleTextImport}>Start Import</button>
+                            </div>
+                        </>
+                    ) : (
+                        <div style={{textAlign:'center', padding:'20px'}}>
+                            <div className="spin-anim" style={{
+                                width:'40px', height:'40px', border:'4px solid #333', borderTop:'4px solid var(--primary)', 
+                                borderRadius:'50%', margin:'0 auto 20px'
+                            }}></div>
+                            <h3>Finding Songs...</h3>
+                            <p style={{color: '#aaa'}}>{importProgress.current} / {importProgress.total} processed</p>
+                            
+                            {/* Visual Progress Bar */}
+                            <div style={{width: '100%', height: '6px', background: '#333', borderRadius: '3px', marginTop: '15px', overflow: 'hidden'}}>
+                                <div style={{
+                                    height: '100%', background: 'var(--primary)', 
+                                    width: `${(importProgress.current / importProgress.total) * 100}%`,
+                                    transition: 'width 0.2s ease'
+                                }}></div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
+        )}
+
+  <div className="nav-section-title">My Playlists</div>
+                
+                {/* UNIVERSAL IMPORT BUTTON */}
+                <button className="btn-create-playlist" onClick={()=>setShowTextImportModal(true)} style={{marginBottom: '10px', background: 'rgba(255, 255, 255, 0.1)', color: 'white', border: '1px solid rgba(255,255,255,0.2)'}}>
+                    <span style={{marginRight: '8px'}}>📋</span> Import Text / Copy
+                </button>
 
   return (
     <div className="app-layout">
