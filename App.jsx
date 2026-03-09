@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import './App.css';
 import toast, { Toaster } from 'react-hot-toast';
-// --- NEW: GSAP IMPORTS ---
+// --- GSAP IMPORTS ---
 import gsap from 'gsap';
 import { useGSAP } from '@gsap/react';
 gsap.registerPlugin(useGSAP);
@@ -143,7 +143,7 @@ const APIs = {
       }));
     }
   },
-  // --- REVERTED YOUTUBE INTEGRATION (Works perfectly with your current backend) ---
+  // --- REVERTED YOUTUBE INTEGRATION ---
   youtube: {
     name: 'YouTube',
     apiBase: import.meta.env.VITE_YT_API_BASE || 'http://localhost:3000',
@@ -862,15 +862,44 @@ function App() {
           .sidebar { background: rgba(0, 0, 0, 0.6) !important; backdrop-filter: blur(20px); }
           .card { background: rgba(255, 255, 255, 0.05) !important; backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.05); }
           .header { background: transparent !important; }
-          .player-bar { background: rgba(10, 10, 10, 0.85) !important; backdrop-filter: blur(30px); border-top: 1px solid rgba(255,255,255,0.05); display: flex; align-items: center; width: 100%; box-sizing: border-box; }
           
+          /* FIX: Added padding and justification to prevent overflow */
+          .player-bar { 
+              background: rgba(10, 10, 10, 0.85) !important; 
+              backdrop-filter: blur(30px); 
+              border-top: 1px solid rgba(255,255,255,0.05); 
+              display: flex; 
+              align-items: center; 
+              width: 100%; 
+              box-sizing: border-box; 
+              justify-content: space-between;
+              padding: 0 20px; /* Crucial padding to keep elements off the edge */
+          }
+          
+          /* FIX: Added proper spacing and constraints for right controls */
+          .p-right {
+              display: flex;
+              align-items: center;
+              justify-content: flex-end;
+              gap: 12px;
+              flex: 1;
+              min-width: 0;
+          }
+
+          /* FIX: Constrain volume slider width */
+          .volume-slider {
+              width: 80px !important;
+              max-width: 20vw;
+              accent-color: #d4acfb;
+          }
+
           /* --- RESPONSIVE PLAYER BAR FIXES --- */
           .mobile-controls { display: none; }
           @media (max-width: 768px) {
               .p-center, .p-right { display: none !important; }
-              /* Force mobile controls to show and push to the right */
-              .mobile-controls { display: flex !important; align-items: center; gap: 15px; margin-left: auto; padding-right: 10px; }
+              .mobile-controls { display: flex !important; align-items: center; gap: 15px; margin-left: auto; }
               .p-track { flex: 1; min-width: 0; padding-right: 10px; }
+              .player-bar { padding: 0 15px; }
           }
 
           /* --- DISC PLAYER ANIMATION --- */
@@ -994,7 +1023,7 @@ function App() {
             </div>
         )}
 
-        {/* UNIVERSAL TEXT IMPORT MODAL (Now correctly placed!) */}
+        {/* UNIVERSAL TEXT IMPORT MODAL (Now correctly placed inside return) */}
         {showTextImportModal && (
             <div className="modal-overlay">
                 <div className="modal-box" style={{maxWidth: '500px'}}>
@@ -1520,7 +1549,7 @@ function App() {
                         
                         <select 
                             className="quality-select" value={quality} onChange={e => handleQualityChange(e.target.value)}
-                            style={{ background: 'rgba(255, 255, 255, 0.15)', color: 'white', border: '1px solid rgba(255, 255, 255, 0.2)', borderRadius: '20px', padding: '6px 12px', marginLeft: '15px', cursor: 'pointer', outline: 'none', fontWeight: '600', fontSize: '0.75rem', backdropFilter: 'blur(10px)' }}
+                            style={{ background: 'rgba(255, 255, 255, 0.15)', color: 'white', border: '1px solid rgba(255, 255, 255, 0.2)', borderRadius: '20px', padding: '6px 12px', marginLeft: '0', cursor: 'pointer', outline: 'none', fontWeight: '600', fontSize: '0.75rem', backdropFilter: 'blur(10px)' }}
                         >
                             <option value="96kbps" style={{color: 'black'}}>Low</option>
                             <option value="160kbps" style={{color: 'black'}}>Medium</option>
@@ -1528,7 +1557,7 @@ function App() {
                             <option value="Premium" style={{color: 'black'}}>Premium</option>
                         </select>
 
-                        <button className="btn-icon" onClick={() => setTheaterMode(!theaterMode)} style={{marginLeft: '15px'}}>
+                        <button className="btn-icon" onClick={() => setTheaterMode(!theaterMode)} style={{marginLeft: '0'}}>
                             {theaterMode ? <Icons.Minimize/> : <Icons.Maximize/>}
                         </button>
                     </div>
