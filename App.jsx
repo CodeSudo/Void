@@ -761,7 +761,7 @@ function App() {
     <div className="app-layout">
         <Toaster position="top-center" toastOptions={{style:{background:'#333', color:'#fff'}}}/>
 
-        {/* --- STYLES WITH FIX FOR OVERFLOW --- */}
+        {/* --- STYLES WITH CSS GRID --- */}
         <style>{`
           .app-layout { background: transparent !important; }
           .main-content { background: rgba(0, 0, 0, 0.5) !important; border-left: 1px solid rgba(255,255,255,0.05); }
@@ -769,64 +769,57 @@ function App() {
           .card { background: rgba(255, 255, 255, 0.05) !important; backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.05); }
           .header { background: transparent !important; }
           
-          /* --- FIXED PLAYER BAR LAYOUT --- */
+          /* --- FIXED CSS GRID LAYOUT --- */
           .player-bar { 
               background: rgba(10, 10, 10, 0.85) !important; 
               backdrop-filter: blur(30px); 
               border-top: 1px solid rgba(255,255,255,0.05); 
-              display: flex; 
+              display: grid; 
+              grid-template-columns: 1fr minmax(auto, 600px) 1fr; /* LEFT | CENTER | RIGHT */
               align-items: center; 
               width: 100%; 
               box-sizing: border-box; 
-              justify-content: space-between;
-              padding: 0 16px; /* Padding keeps things off edge */
+              padding: 0 20px;
           }
           
-          /* 1. LEFT ZONE (Track Info) - Flexible */
+          /* LEFT ZONE */
           .p-track { 
-              width: 300px; /* Start generous */
-              flex: 1 1 auto; /* Allow grow/shrink */
-              overflow: hidden; /* Prevent spill */
-              display: flex;
-              align-items: center;
+              justify-self: start; 
+              display: flex; 
+              align-items: center; 
+              overflow: hidden; 
+              max-width: 100%;
           }
 
-          /* 2. CENTER ZONE (Controls) - Flexible but capped */
+          /* CENTER ZONE */
           .p-center {
-              flex: 0 1 600px; /* Don't grow past 600, allow shrink */
+              justify-self: center;
+              width: 100%;
               display: flex;
               flex-direction: column;
               align-items: center;
               justify-content: center;
           }
 
-          /* 3. RIGHT ZONE (Volume) - STRICT PRIORITY */
+          /* RIGHT ZONE */
           .p-right {
-              width: auto; /* dynamic width */
-              flex: 0 0 auto; /* Do NOT shrink. Keep buttons visible. */
-              justify-content: flex-end;
+              justify-self: end;
               display: flex;
               align-items: center;
               gap: 12px;
           }
 
-          /* Fix volume slider width */
-          .volume-slider {
-              width: 80px; 
-              max-width: 15vw; /* Responsive shrink */
-              accent-color: #d4acfb;
-          }
+          .volume-slider { width: 80px; accent-color: #d4acfb; }
 
-          /* --- RESPONSIVE MOBILE FIXES --- */
+          /* --- MOBILE --- */
           .mobile-controls { display: none; }
           @media (max-width: 768px) {
+              .player-bar { display: flex; justify-content: space-between; padding: 0 15px; }
               .p-center, .p-right { display: none !important; }
               .mobile-controls { display: flex !important; align-items: center; gap: 15px; margin-left: auto; }
-              .p-track { flex: 1; min-width: 0; padding-right: 10px; max-width: none; }
-              .player-bar { padding: 0 15px; }
+              .p-track { flex: 1; max-width: none; }
           }
 
-          /* Animation */
           @keyframes spinRecord { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
           .spin-anim { animation: spinRecord 6s linear infinite; }
           .spin-paused { animation-play-state: paused; }
