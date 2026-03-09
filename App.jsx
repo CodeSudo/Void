@@ -253,34 +253,17 @@ function App() {
   const [isShuffle, setIsShuffle] = useState(false);
   const [repeatMode, setRepeatMode] = useState('none'); 
 
-  // --- NEW: GSAP ANIMATION LOGIC ---
+  // --- GSAP ANIMATION LOGIC ---
   const containerRef = useRef(null);
 
   useGSAP(() => {
-    // 1. Animate headers sliding in from the left
     gsap.from('.section-header, .hero h1, .hero p', {
-      x: -30,
-      opacity: 0,
-      duration: 0.6,
-      stagger: 0.1,
-      ease: 'power3.out',
-      clearProps: 'all' // Clears GSAP styles after running so it doesn't break standard CSS
+      x: -30, opacity: 0, duration: 0.6, stagger: 0.1, ease: 'power3.out', clearProps: 'all'
     });
-
-    // 2. Animate cards cascading upward
     gsap.from('.card, .track-row', {
-      y: 50,
-      opacity: 0,
-      duration: 0.5,
-      stagger: 0.05,
-      ease: 'back.out(1.2)',
-      clearProps: 'all' // Crucial so your CSS hover effects still work!
+      y: 50, opacity: 0, duration: 0.5, stagger: 0.05, ease: 'back.out(1.2)', clearProps: 'all'
     });
-  }, { 
-    // This tells GSAP to re-run the animation every time one of these variables changes
-    dependencies: [tab, homeData, resSongs, resAlbums, moodPlaylists, detailsSongs], 
-    scope: containerRef 
-  });
+  }, { dependencies: [tab, homeData, resSongs, resAlbums, moodPlaylists, detailsSongs], scope: containerRef });
 
   const currentSongRef = useRef(null);
   useEffect(() => { currentSongRef.current = currentSong; }, [currentSong]);
@@ -381,9 +364,7 @@ function App() {
   const doSearch = async () => {
     if(!searchQuery) return;
     setLoading(true); setTab('search');
-    
     setResSongs([]); setResAlbums([]); setResArtists([]); setResPlaylists([]);
-    
     try {
       if (source === 'saavn') {
           const [s, a, ar, p] = await Promise.all([
@@ -394,16 +375,11 @@ function App() {
           ]);
           setResSongs(s?.data?.results || []); setResAlbums(a?.data?.results || []); setResArtists(ar?.data?.results || []); setResPlaylists(p?.data?.results || []);
       } else {
-          // --- REVERTED: Just fetch the single array of songs for all other sources (including current YouTube API) ---
           const songs = await APIs[source].search(searchQuery);
           setResSongs(songs);
       }
-    } catch(e) { 
-        console.error(e); 
-        toast.error("Search failed");
-    } finally { 
-        setLoading(false); 
-    }
+    } catch(e) { console.error(e); toast.error("Search failed");
+    } finally { setLoading(false); }
   };
 
   const fetchLyrics = async () => {
@@ -425,7 +401,6 @@ function App() {
     } catch(e) { toast.error("Error loading lyrics", { id: toastId }); }
   };
 
-  // --- HYBRID PLAYER LOGIC ---
   const playSong = async (list, idx) => {
     if(!list || !list[idx]) return;
     setQueue(list); setQIndex(idx);
@@ -448,12 +423,9 @@ function App() {
       return; 
     }
     
-    if (ytPlayerRef.current && typeof ytPlayerRef.current.pauseVideo === 'function') {
-      ytPlayerRef.current.pauseVideo();
-    }
+    if (ytPlayerRef.current && typeof ytPlayerRef.current.pauseVideo === 'function') { ytPlayerRef.current.pauseVideo(); }
     
     let url = "";
-
     if (s.source === 'soundcloud') {
         const toastId = toast.loading("Loading SoundCloud Stream...");
         try {
@@ -507,7 +479,6 @@ function App() {
     const w = e.currentTarget.clientWidth;
     const x = e.nativeEvent.offsetX;
     const seekTo = (x / w) * duration;
-    
     if (currentSong?.source === 'youtube') { ytPlayerRef.current?.seekTo(seekTo, true); } 
     else { audioRef.current.currentTime = seekTo; }
     setProgress(seekTo);
@@ -712,75 +683,47 @@ function App() {
 
   useEffect(() => { document.title = currentSong ? `${getName(currentSong)} • Void` : "Void Music"; }, [currentSong]);
 
-  // --- UNIVERSAL TEXT IMPORTER ---
+  // --- UNIVERSAL TEXT IMPORTER LOGIC ---
   const [showTextImportModal, setShowTextImportModal] = useState(false);
   const [importText, setImportText] = useState('');
   const [importProgress, setImportProgress] = useState({ current: 0, total: 0, status: 'idle' });
 
   const handleTextImport = async () => {
     if (!importText.trim()) return;
-    
-    // Split text by new lines to get song list
     const lines = importText.split('\n').filter(line => line.trim().length > 0);
     setImportProgress({ current: 0, total: lines.length, status: 'converting' });
-    
     const matchedSongs = [];
 
     for (let i = 0; i < lines.length; i++) {
       const query = lines[i].trim();
-      // Skip empty lines or lines that are just numbers (like "1.")
       if (!query || query.length < 2) continue;
-
       setImportProgress({ current: i + 1, total: lines.length, status: 'converting' });
-      
       try {
-        // Search Void engine for the song name
         const results = await APIs.youtube.search(query);
-        if (results.songs && results.songs.length > 0) {
-          matchedSongs.push(results.songs[0]); // Add top match
-        }
-      } catch (e) {
-        console.warn(`Could not match: ${query}`);
-      }
-      
-      // Tiny delay to be nice to the API
+        if (results.songs && results.songs.length > 0) { matchedSongs.push(results.songs[0]); }
+      } catch (e) { console.warn(`Could not match: ${query}`); }
       await new Promise(r => setTimeout(r, 100));
     }
 
-    // Save to Firebase
     if (matchedSongs.length > 0) {
       try {
           const ref = collection(db, `users/${user.uid}/playlists`);
-          await addDoc(ref, { 
-            name: `Imported Playlist ${new Date().toLocaleDateString()}`, 
-            songs: matchedSongs 
-          });
+          await addDoc(ref, { name: `Imported Playlist ${new Date().toLocaleDateString()}`, songs: matchedSongs });
           toast.success(`Successfully imported ${matchedSongs.length} songs!`);
-          setShowTextImportModal(false);
-          setImportText("");
-      } catch(e) {
-          toast.error("Failed to save playlist");
-      }
-    } else {
-      toast.error("No songs found. Check your spelling.");
-    }
-    
+          setShowTextImportModal(false); setImportText("");
+      } catch(e) { toast.error("Failed to save playlist"); }
+    } else { toast.error("No songs found. Check your spelling."); }
     setImportProgress({ current: 0, total: 0, status: 'idle' });
   };
 
-
   if(view==='loading') return <div style={{height:'100vh',background:'black',display:'flex',justifyContent:'center',alignItems:'center',color:'white'}}>Loading...</div>;
 
-  // --- PREMIUM LOGIN VIEW ---
   if(view==='auth') return (
     <div style={{
         height: '100vh', width: '100vw', display: 'flex', justifyContent: 'center', alignItems: 'center',
-        background: 'radial-gradient(circle at 50% -20%, #2a0845 0%, #000000 80%)', // Sleek deep purple glow
-        fontFamily: 'system-ui, -apple-system, sans-serif'
+        background: 'radial-gradient(circle at 50% -20%, #2a0845 0%, #000000 80%)', fontFamily: 'system-ui, -apple-system, sans-serif'
     }}>
         <Toaster position="top-center" toastOptions={{style:{background:'#333', color:'#fff'}}}/>
-        
-        {/* Glassmorphism Card */}
         <div style={{
             background: 'rgba(255, 255, 255, 0.03)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
             border: '1px solid rgba(255, 255, 255, 0.05)', borderRadius: '24px', padding: '50px',
@@ -790,62 +733,25 @@ function App() {
             <p style={{ color: '#aaa', marginBottom: '40px', fontSize: '1.1rem' }}>
                 {authMode === 'login' ? 'Welcome back to the music universe.' : 'Create your sonic identity.'}
             </p>
-            
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                <input 
-                    placeholder="Email Address" 
-                    value={authInput.email}
-                    onChange={e=>setAuthInput({...authInput,email:e.target.value})}
-                    style={{
-                        width: '100%', padding: '16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)',
-                        background: 'rgba(0,0,0,0.3)', color: 'white', outline: 'none', fontSize: '1rem',
-                        boxSizing: 'border-box', transition: 'border 0.3s ease, background 0.3s ease'
-                    }}
+                <input placeholder="Email Address" value={authInput.email} onChange={e=>setAuthInput({...authInput,email:e.target.value})}
+                    style={{ width: '100%', padding: '16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(0,0,0,0.3)', color: 'white', outline: 'none', fontSize: '1rem', boxSizing: 'border-box', transition: 'border 0.3s ease, background 0.3s ease' }}
                     onFocus={(e) => { e.target.style.border = '1px solid #d4acfb'; e.target.style.background = 'rgba(0,0,0,0.5)'; }}
                     onBlur={(e) => { e.target.style.border = '1px solid rgba(255,255,255,0.1)'; e.target.style.background = 'rgba(0,0,0,0.3)'; }}
                 />
-                <input 
-                    type="password" 
-                    placeholder="Password" 
-                    value={authInput.password}
-                    onChange={e=>setAuthInput({...authInput,password:e.target.value})}
-                    onKeyDown={e=>e.key==='Enter'&&handleAuth()}
-                    style={{
-                        width: '100%', padding: '16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)',
-                        background: 'rgba(0,0,0,0.3)', color: 'white', outline: 'none', fontSize: '1rem',
-                        boxSizing: 'border-box', transition: 'border 0.3s ease, background 0.3s ease'
-                    }}
+                <input type="password" placeholder="Password" value={authInput.password} onChange={e=>setAuthInput({...authInput,password:e.target.value})} onKeyDown={e=>e.key==='Enter'&&handleAuth()}
+                    style={{ width: '100%', padding: '16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(0,0,0,0.3)', color: 'white', outline: 'none', fontSize: '1rem', boxSizing: 'border-box', transition: 'border 0.3s ease, background 0.3s ease' }}
                     onFocus={(e) => { e.target.style.border = '1px solid #d4acfb'; e.target.style.background = 'rgba(0,0,0,0.5)'; }}
                     onBlur={(e) => { e.target.style.border = '1px solid rgba(255,255,255,0.1)'; e.target.style.background = 'rgba(0,0,0,0.3)'; }}
                 />
-                
-                <button 
-                    onClick={handleAuth}
-                    style={{
-                        width: '100%', padding: '16px', borderRadius: '12px', border: 'none',
-                        background: 'linear-gradient(135deg, #d4acfb 0%, #a252f8 100%)', color: '#fff',
-                        fontSize: '1.1rem', fontWeight: 'bold', cursor: 'pointer', marginTop: '10px',
-                        boxShadow: '0 8px 20px rgba(162, 82, 248, 0.3)', transition: 'transform 0.1s ease, filter 0.2s ease'
-                    }}
-                    onMouseOver={(e) => e.currentTarget.style.filter = 'brightness(1.15)'}
-                    onMouseOut={(e) => e.currentTarget.style.filter = 'brightness(1)'}
-                    onMouseDown={(e) => e.currentTarget.style.transform = 'scale(0.97)'}
-                    onMouseUp={(e) => e.currentTarget.style.transform = 'scale(1)'}
-                >
-                    {authMode === 'login' ? 'Sign In' : 'Create Account'}
-                </button>
+                <button onClick={handleAuth} style={{ width: '100%', padding: '16px', borderRadius: '12px', border: 'none', background: 'linear-gradient(135deg, #d4acfb 0%, #a252f8 100%)', color: '#fff', fontSize: '1.1rem', fontWeight: 'bold', cursor: 'pointer', marginTop: '10px', boxShadow: '0 8px 20px rgba(162, 82, 248, 0.3)', transition: 'transform 0.1s ease, filter 0.2s ease' }}
+                    onMouseOver={(e) => e.currentTarget.style.filter = 'brightness(1.15)'} onMouseOut={(e) => e.currentTarget.style.filter = 'brightness(1)'} onMouseDown={(e) => e.currentTarget.style.transform = 'scale(0.97)'} onMouseUp={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                >{authMode === 'login' ? 'Sign In' : 'Create Account'}</button>
             </div>
-
             <p style={{color:'#888', marginTop: '30px', fontSize: '0.95rem'}}>
                 {authMode === 'login' ? "Don't have an account? " : "Already have an account? "}
-                <span 
-                    style={{color: '#d4acfb', cursor: 'pointer', fontWeight: 'bold', textDecoration: 'underline transparent', transition: 'text-decoration 0.2s'}} 
-                    onClick={()=>setAuthMode(authMode==='login'?'signup':'login')}
-                    onMouseOver={(e) => e.currentTarget.style.textDecoration = 'underline solid #d4acfb'}
-                    onMouseOut={(e) => e.currentTarget.style.textDecoration = 'underline transparent'}
-                >
-                    {authMode === 'login' ? 'Sign Up' : 'Log In'}
-                </span>
+                <span style={{color: '#d4acfb', cursor: 'pointer', fontWeight: 'bold', textDecoration: 'underline transparent', transition: 'text-decoration 0.2s'}} onClick={()=>setAuthMode(authMode==='login'?'signup':'login')} onMouseOver={(e) => e.currentTarget.style.textDecoration = 'underline solid #d4acfb'} onMouseOut={(e) => e.currentTarget.style.textDecoration = 'underline transparent'}
+                >{authMode === 'login' ? 'Sign Up' : 'Log In'}</span>
             </p>
         </div>
     </div>
@@ -855,7 +761,7 @@ function App() {
     <div className="app-layout">
         <Toaster position="top-center" toastOptions={{style:{background:'#333', color:'#fff'}}}/>
 
-        {/* --- INJECTED GLASSMORPHISM & RESPONSIVE CSS --- */}
+        {/* --- STYLES WITH FIX FOR OVERFLOW --- */}
         <style>{`
           .app-layout { background: transparent !important; }
           .main-content { background: rgba(0, 0, 0, 0.5) !important; border-left: 1px solid rgba(255,255,255,0.05); }
@@ -863,7 +769,7 @@ function App() {
           .card { background: rgba(255, 255, 255, 0.05) !important; backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.05); }
           .header { background: transparent !important; }
           
-          /* FIX: Added padding and justification to prevent overflow */
+          /* --- FIXED PLAYER BAR LAYOUT --- */
           .player-bar { 
               background: rgba(10, 10, 10, 0.85) !important; 
               backdrop-filter: blur(30px); 
@@ -873,203 +779,102 @@ function App() {
               width: 100%; 
               box-sizing: border-box; 
               justify-content: space-between;
-              padding: 0 20px; /* Crucial padding to keep elements off the edge */
+              padding: 0 16px; /* Padding keeps things off edge */
           }
           
-          /* FIX: Added proper spacing and constraints for right controls */
-          .p-right {
-              display: flex;
+          /* 1. LEFT ZONE (Track Info) - Takes 30% max */
+          .p-track { 
+              flex: 1; 
+              min-width: 0; 
+              max-width: 30%;
+              display: flex; 
               align-items: center;
-              justify-content: flex-end;
-              gap: 12px;
-              flex: 1;
-              min-width: 0;
           }
 
-          /* FIX: Constrain volume slider width */
+          /* 2. CENTER ZONE (Controls) - Takes 40% max */
+          .p-center {
+              flex: 2; /* Grows faster than others */
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              max-width: 40%; /* Strict cap to prevent pushing */
+          }
+
+          /* 3. RIGHT ZONE (Volume) - Takes 30% max */
+          .p-right {
+              flex: 1;
+              display: flex;
+              align-items: center;
+              justify-content: flex-end; /* Pushes content to right */
+              gap: 12px;
+              min-width: 0; 
+              max-width: 30%;
+          }
+
+          /* Fix volume slider width */
           .volume-slider {
-              width: 80px !important;
-              max-width: 20vw;
+              width: 80px; 
+              max-width: 15vw; /* Responsive shrink */
               accent-color: #d4acfb;
           }
 
-          /* --- RESPONSIVE PLAYER BAR FIXES --- */
+          /* --- RESPONSIVE MOBILE FIXES --- */
           .mobile-controls { display: none; }
           @media (max-width: 768px) {
               .p-center, .p-right { display: none !important; }
               .mobile-controls { display: flex !important; align-items: center; gap: 15px; margin-left: auto; }
-              .p-track { flex: 1; min-width: 0; padding-right: 10px; }
-              .player-bar { padding: 0 15px; }
+              .p-track { flex: 1; min-width: 0; padding-right: 10px; max-width: none; }
           }
 
-          /* --- DISC PLAYER ANIMATION --- */
-          @keyframes spinRecord {
-              from { transform: rotate(0deg); }
-              to { transform: rotate(360deg); }
-          }
+          /* Animation */
+          @keyframes spinRecord { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
           .spin-anim { animation: spinRecord 6s linear infinite; }
           .spin-paused { animation-play-state: paused; }
         `}</style>
 
-        {/* --- DYNAMIC AMBIENT BACKGROUND --- */}
+        {/* --- DYNAMIC BACKGROUND --- */}
         {currentSong && (
-            <div style={{
-                position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: -1,
-                backgroundImage: `url(${getImg(currentSong.image)})`,
-                backgroundSize: 'cover', backgroundPosition: 'center',
-                filter: 'blur(100px) brightness(0.35)', transform: 'scale(1.2)',
-                transition: 'background-image 1s ease-in-out', pointerEvents: 'none'
-            }} />
+            <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: -1, backgroundImage: `url(${getImg(currentSong.image)})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(100px) brightness(0.35)', transform: 'scale(1.2)', transition: 'background-image 1s ease-in-out', pointerEvents: 'none' }} />
         )}
 
-        {/* --- THEATER MODE FULLSCREEN OVERLAY --- */}
-        <div style={{
-            position: 'absolute', top: 0, left: 0, right: 0, bottom: '90px', 
-            zIndex: 50, background: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(40px)',
-            display: theaterMode ? 'flex' : 'none', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-            opacity: theaterMode ? 1 : 0, transition: 'opacity 0.4s ease', pointerEvents: theaterMode ? 'all' : 'none'
-        }}>
+        {/* --- THEATER MODE --- */}
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: '90px', zIndex: 50, background: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(40px)', display: theaterMode ? 'flex' : 'none', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', opacity: theaterMode ? 1 : 0, transition: 'opacity 0.4s ease', pointerEvents: theaterMode ? 'all' : 'none' }}>
             {currentSong && (
                 <>
-                    {/* --- THE FRAMER-STYLE VINYL RECORD --- */}
-                    <div 
-                        className={`spin-anim ${!isPlaying ? 'spin-paused' : ''}`}
-                        style={{
-                            width: '45vh', height: '45vh', borderRadius: '50%', marginBottom: '40px',
-                            background: 'radial-gradient(circle, #222 0%, #050505 100%)', // Black Vinyl Base
-                            boxShadow: '0 30px 60px rgba(0,0,0,0.8), inset 0 0 0 10px #111, inset 0 0 0 12px #222', // Grooves
-                            display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative'
-                        }}
-                    >
-                        {/* Center Album Art */}
-                        <img src={getImg(currentSong.image)} alt="" style={{
-                            width: '40%', height: '40%', objectFit: 'cover', borderRadius: '50%',
-                            boxShadow: '0 0 0 4px #000'
-                        }}/>
-                        {/* Spindle Hole */}
-                        <div style={{
-                            position: 'absolute', width: '15px', height: '15px', 
-                            background: '#111', borderRadius: '50%', border: '1px solid #333'
-                        }}></div>
+                    <div className={`spin-anim ${!isPlaying ? 'spin-paused' : ''}`} style={{ width: '45vh', height: '45vh', borderRadius: '50%', marginBottom: '40px', background: 'radial-gradient(circle, #222 0%, #050505 100%)', boxShadow: '0 30px 60px rgba(0,0,0,0.8), inset 0 0 0 10px #111, inset 0 0 0 12px #222', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                        <img src={getImg(currentSong.image)} alt="" style={{ width: '40%', height: '40%', objectFit: 'cover', borderRadius: '50%', boxShadow: '0 0 0 4px #000' }}/>
+                        <div style={{ position: 'absolute', width: '15px', height: '15px', background: '#111', borderRadius: '50%', border: '1px solid #333' }}></div>
                     </div>
-
-                    <h1 style={{fontSize: '3.5rem', color: 'white', fontWeight: 800, textAlign: 'center', margin: '0 0 10px 0', textShadow: '0 4px 20px rgba(0,0,0,0.5)'}}>
-                        {getName(currentSong)}
-                    </h1>
-                    <p style={{fontSize: '1.5rem', color: 'rgba(255,255,255,0.7)', margin: 0}}>
-                        {getDesc(currentSong)}
-                    </p>
+                    <h1 style={{fontSize: '3.5rem', color: 'white', fontWeight: 800, textAlign: 'center', margin: '0 0 10px 0', textShadow: '0 4px 20px rgba(0,0,0,0.5)'}}>{getName(currentSong)}</h1>
+                    <p style={{fontSize: '1.5rem', color: 'rgba(255,255,255,0.7)', margin: 0}}>{getDesc(currentSong)}</p>
                 </>
             )}
         </div>
 
         <div id="hidden-yt-player" style={{ position: 'absolute', top: '-1000px', width: '1px', height: '1px' }}></div>
 
-        {showLyrics && (
-            <div className="lyrics-overlay">
-                <button className="lyrics-close" onClick={()=>setShowLyrics(false)}>✕</button>
-                <div className="lyrics-content">{lyricsText}</div>
-            </div>
-        )}
+        {showLyrics && ( <div className="lyrics-overlay"><button className="lyrics-close" onClick={()=>setShowLyrics(false)}>✕</button><div className="lyrics-content">{lyricsText}</div></div> )}
 
         {showQueue && (
             <div className={`queue-sidebar ${showQueue?'open':''}`}>
-                <div className="queue-header">
-                    <span>Up Next</span>
-                    <button onClick={()=>setShowQueue(false)} style={{background:'none',border:'none',color:'white',cursor:'pointer'}}>✕</button>
-                </div>
-                <div className="queue-list">
-                    {queue.map((s, i) => (
-                        <div key={i} className={`queue-item ${i===qIndex?'active':''}`}>
-                            <img src={getImg(s.image)} alt="" onClick={()=>playSong(queue, i)}/>
-                            <div style={{flex:1}} onClick={()=>playSong(queue, i)}>
-                                <div style={{fontSize:'0.9rem', fontWeight:700, color:'white'}}>{getName(s)}</div>
-                                <div style={{fontSize:'0.8rem', color:'#aaa'}}>{getDesc(s)}</div>
-                            </div>
-                            <button onClick={()=>removeFromQueue(i)} style={{background:'none',border:'none',color:'#666',cursor:'pointer'}}><Icons.Trash/></button>
-                        </div>
-                    ))}
-                </div>
+                <div className="queue-header"><span>Up Next</span><button onClick={()=>setShowQueue(false)} style={{background:'none',border:'none',color:'white',cursor:'pointer'}}>✕</button></div>
+                <div className="queue-list">{queue.map((s, i) => (<div key={i} className={`queue-item ${i===qIndex?'active':''}`}><img src={getImg(s.image)} alt="" onClick={()=>playSong(queue, i)}/><div style={{flex:1}} onClick={()=>playSong(queue, i)}><div style={{fontSize:'0.9rem', fontWeight:700, color:'white'}}>{getName(s)}</div><div style={{fontSize:'0.8rem', color:'#aaa'}}>{getDesc(s)}</div></div><button onClick={()=>removeFromQueue(i)} style={{background:'none',border:'none',color:'#666',cursor:'pointer'}}><Icons.Trash/></button></div>))}</div>
             </div>
         )}
 
         {showPlaylistModal && (
-            <div className="modal-overlay">
-                <div className="modal-box">
-                    <h2>New Playlist</h2>
-                    <input className="modal-input" placeholder="Playlist Name" value={newPlaylistName} onChange={e=>setNewPlaylistName(e.target.value)}/>
-                    <div className="modal-actions">
-                        <button className="btn-cancel" onClick={()=>setShowPlaylistModal(false)}>Cancel</button>
-                        <button className="btn-confirm" onClick={createPlaylist}>Create</button>
-                    </div>
-                </div>
-            </div>
+            <div className="modal-overlay"><div className="modal-box"><h2>New Playlist</h2><input className="modal-input" placeholder="Playlist Name" value={newPlaylistName} onChange={e=>setNewPlaylistName(e.target.value)}/><div className="modal-actions"><button className="btn-cancel" onClick={()=>setShowPlaylistModal(false)}>Cancel</button><button className="btn-confirm" onClick={createPlaylist}>Create</button></div></div></div>
         )}
 
         {showAddToPlaylistModal && (
-            <div className="modal-overlay">
-                <div className="modal-box">
-                    <h2>Add to Playlist</h2>
-                    <div className="queue-list" style={{maxHeight:300}}>
-                        {userPlaylists.map(pl => (
-                            <div key={pl.id} className="queue-item" onClick={()=>addToPlaylist(pl.id)}>
-                                <div style={{width:40, height:40, background:'#333', borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center'}}>🎵</div>
-                                <div>{pl.name}</div>
-                            </div>
-                        ))}
-                    </div>
-                    <button className="btn-cancel" style={{marginTop:20, width:'100%'}} onClick={()=>setShowAddToPlaylistModal(false)}>Cancel</button>
-                </div>
-            </div>
+            <div className="modal-overlay"><div className="modal-box"><h2>Add to Playlist</h2><div className="queue-list" style={{maxHeight:300}}>{userPlaylists.map(pl => (<div key={pl.id} className="queue-item" onClick={()=>addToPlaylist(pl.id)}><div style={{width:40, height:40, background:'#333', borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center'}}>🎵</div><div>{pl.name}</div></div>))}</div><button className="btn-cancel" style={{marginTop:20, width:'100%'}} onClick={()=>setShowAddToPlaylistModal(false)}>Cancel</button></div></div>
         )}
 
-        {/* UNIVERSAL TEXT IMPORT MODAL (Now correctly placed inside return) */}
         {showTextImportModal && (
-            <div className="modal-overlay">
-                <div className="modal-box" style={{maxWidth: '500px'}}>
-                    <h2>Import Songs</h2>
-                    <p style={{color:'#aaa', fontSize:'0.9rem', marginBottom:'20px'}}>
-                        Paste a list of songs (one per line). <br/>
-                        Example:<br/>
-                        <i>Starboy - The Weeknd<br/>
-                        Shape of You - Ed Sheeran</i>
-                    </p>
-                    
-                    {importProgress.status === 'idle' ? (
-                        <>
-                            <textarea 
-                                className="modal-input" 
-                                placeholder="Paste your song list here..." 
-                                value={importText} 
-                                onChange={e=>setImportText(e.target.value)}
-                                style={{minHeight: '200px', resize: 'vertical', fontFamily: 'monospace'}}
-                            />
-                            <div className="modal-actions">
-                                <button className="btn-cancel" onClick={()=>setShowTextImportModal(false)}>Cancel</button>
-                                <button className="btn-confirm" onClick={handleTextImport}>Start Import</button>
-                            </div>
-                        </>
-                    ) : (
-                        <div style={{textAlign:'center', padding:'20px'}}>
-                            <div className="spin-anim" style={{
-                                width:'40px', height:'40px', border:'4px solid #333', borderTop:'4px solid var(--primary)', 
-                                borderRadius:'50%', margin:'0 auto 20px'
-                            }}></div>
-                            <h3>Finding Songs...</h3>
-                            <p style={{color: '#aaa'}}>{importProgress.current} / {importProgress.total} processed</p>
-                            
-                            {/* Visual Progress Bar */}
-                            <div style={{width: '100%', height: '6px', background: '#333', borderRadius: '3px', marginTop: '15px', overflow: 'hidden'}}>
-                                <div style={{
-                                    height: '100%', background: 'var(--primary)', 
-                                    width: `${(importProgress.current / importProgress.total) * 100}%`,
-                                    transition: 'width 0.2s ease'
-                                }}></div>
-                            </div>
-                        </div>
-                    )}
-                </div>
-            </div>
+            <div className="modal-overlay"><div className="modal-box" style={{maxWidth: '500px'}}><h2>Import Songs</h2><p style={{color:'#aaa', fontSize:'0.9rem', marginBottom:'20px'}}>Paste a list of songs (one per line). <br/>Example:<br/><i>Starboy - The Weeknd<br/>Shape of You - Ed Sheeran</i></p>
+                {importProgress.status === 'idle' ? (<><textarea className="modal-input" placeholder="Paste your song list here..." value={importText} onChange={e=>setImportText(e.target.value)} style={{minHeight: '200px', resize: 'vertical', fontFamily: 'monospace'}}/><div className="modal-actions"><button className="btn-cancel" onClick={()=>setShowTextImportModal(false)}>Cancel</button><button className="btn-confirm" onClick={handleTextImport}>Start Import</button></div></>) : (<div style={{textAlign:'center', padding:'20px'}}><div className="spin-anim" style={{width:'40px', height:'40px', border:'4px solid #333', borderTop:'4px solid var(--primary)', borderRadius:'50%', margin:'0 auto 20px'}}></div><h3>Finding Songs...</h3><p style={{color: '#aaa'}}>{importProgress.current} / {importProgress.total} processed</p><div style={{width: '100%', height: '6px', background: '#333', borderRadius: '3px', marginTop: '15px', overflow: 'hidden'}}><div style={{height: '100%', background: 'var(--primary)', width: `${(importProgress.current / importProgress.total) * 100}%`, transition: 'width 0.2s ease'}}></div></div></div>)}
+            </div></div>
         )}
 
         {/* SIDEBAR */}
@@ -1079,22 +884,10 @@ function App() {
                 <div className={`nav-item ${tab==='home'?'active':''}`} onClick={()=>setTab('home')}><Icons.Home/> Home</div>
                 <div className={`nav-item ${tab==='search'?'active':''}`} onClick={()=>setTab('search')}><Icons.Search/> Search</div>
                 <div className={`nav-item ${tab==='library'?'active':''}`} onClick={()=>setTab('library')}><Icons.Library/> Liked Songs</div>
-                
                 <div className="nav-section-title">My Playlists</div>
-
-                {/* UNIVERSAL IMPORT BUTTON */}
-                <button className="btn-create-playlist" onClick={()=>setShowTextImportModal(true)} style={{marginBottom: '10px', background: 'rgba(255, 255, 255, 0.1)', color: 'white', border: '1px solid rgba(255,255,255,0.2)'}}>
-                    <span style={{marginRight: '8px'}}>📋</span> Import Text / Copy
-                </button>
-
-                {userPlaylists.map(pl => (
-                    <div key={pl.id} className={`nav-item ${selectedItem?.id===pl.id?'active':''}`} onClick={()=>handleCardClick(pl, 'playlist_custom')}>
-                        <span style={{opacity:0.7}}>🎵</span> {pl.name}
-                    </div>
-                ))}
-                <button className="btn-create-playlist" onClick={()=>setShowPlaylistModal(true)}>
-                    <Icons.Plus/> Create Playlist
-                </button>
+                <button className="btn-create-playlist" onClick={()=>setShowTextImportModal(true)} style={{marginBottom: '10px', background: 'rgba(255, 255, 255, 0.1)', color: 'white', border: '1px solid rgba(255,255,255,0.2)'}}><span style={{marginRight: '8px'}}>📋</span> Import Text / Copy</button>
+                {userPlaylists.map(pl => (<div key={pl.id} className={`nav-item ${selectedItem?.id===pl.id?'active':''}`} onClick={()=>handleCardClick(pl, 'playlist_custom')}><span style={{opacity:0.7}}>🎵</span> {pl.name}</div>))}
+                <button className="btn-create-playlist" onClick={()=>setShowPlaylistModal(true)}><Icons.Plus/> Create Playlist</button>
             </div>
         </div>
 
@@ -1102,389 +895,85 @@ function App() {
         <div className="main-content" style={{ zIndex: 10 }}>
             <div className="header">
                 <div className="search-box">
-                    <select 
-                      value={source} 
-                      onChange={(e) => setSource(e.target.value)}
-                      style={{background: 'transparent', border: 'none', color: '#d4acfb', outline: 'none', marginRight: '8px', cursor: 'pointer', fontWeight: 'bold'}}
-                    >
-                      <option value="saavn">JioSaavn</option>
-                      <option value="itunes">Apple Music</option>
-                      <option value="soundcloud">SoundCloud</option>
-                      <option value="qobuz">Qobuz</option>
-                      <option value="youtube">YouTube</option>
+                    <select value={source} onChange={(e) => setSource(e.target.value)} style={{background: 'transparent', border: 'none', color: '#d4acfb', outline: 'none', marginRight: '8px', cursor: 'pointer', fontWeight: 'bold'}}>
+                      <option value="saavn">JioSaavn</option><option value="itunes">Apple Music</option><option value="soundcloud">SoundCloud</option><option value="qobuz">Qobuz</option><option value="youtube">YouTube</option>
                     </select>
                     <div style={{width: 1, height: 20, background: '#333', marginRight: 8}}></div>
-
                     <Icons.Search/>
                     <input placeholder={`Search on ${APIs[source].name}...`} value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} onKeyDown={e=>e.key==='Enter'&&doSearch()}/>
                 </div>
                 <div className="user-pill" onClick={() => setTab('profile')}>
-                    <div className="avatar">{user.email[0].toUpperCase()}</div>
-                    <span>Profile</span>
+                    <div className="avatar">{user.email[0].toUpperCase()}</div><span>Profile</span>
                 </div>
             </div>
 
-            {/* Attach the GSAP scope reference here so it knows what to animate */}
             <div className="scroll-area" ref={containerRef}>
-                
-                {/* PROFILE VIEW */}
                 {tab === 'profile' && (
                     <div className="profile-view">
                         <div style={{ display: 'flex', alignItems: 'center', gap: '24px', background: 'var(--bg-card)', padding: '40px', borderRadius: '24px', marginBottom: '40px', border: '1px solid var(--border)', flexWrap: 'wrap' }}>
-                            <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: 'var(--primary)', color: 'var(--on-primary)', fontSize: '2.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
-                                {user.email[0].toUpperCase()}
-                            </div>
-                            <div style={{ flex: 1, minWidth: '200px' }}>
-                                <h1 style={{ fontSize: '2rem', marginBottom: '8px' }}>My Account</h1>
-                                <p style={{ color: 'var(--text-sec)' }}>{user.email}</p>
-                            </div>
-                            <button 
-                                onClick={() => signOut(auth)} 
-                                style={{ padding: '12px 24px', background: '#e57373', color: 'white', border: 'none', borderRadius: '50px', cursor: 'pointer', fontWeight: 'bold', fontSize: '1rem' }}
-                            >
-                                Logout
-                            </button>
+                            <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: 'var(--primary)', color: 'var(--on-primary)', fontSize: '2.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>{user.email[0].toUpperCase()}</div>
+                            <div style={{ flex: 1, minWidth: '200px' }}><h1 style={{ fontSize: '2rem', marginBottom: '8px' }}>My Account</h1><p style={{ color: 'var(--text-sec)' }}>{user.email}</p></div>
+                            <button onClick={() => signOut(auth)} style={{ padding: '12px 24px', background: '#e57373', color: 'white', border: 'none', borderRadius: '50px', cursor: 'pointer', fontWeight: 'bold', fontSize: '1rem' }}>Logout</button>
                         </div>
-
                         <div className="section-header">Your Stats</div>
                         <div className="grid">
-                            <div className="card" style={{ textAlign: 'center', padding: '30px', cursor: 'default' }}>
-                                <h2 style={{ fontSize: '3rem', color: 'var(--primary)', margin: '10px 0' }}>{likedSongs.length}</h2>
-                                <p style={{ color: 'var(--text-sec)' }}>Liked Songs</p>
-                            </div>
-                            <div className="card" style={{ textAlign: 'center', padding: '30px', cursor: 'default' }}>
-                                <h2 style={{ fontSize: '3rem', color: 'var(--primary)', margin: '10px 0' }}>{userPlaylists.length}</h2>
-                                <p style={{ color: 'var(--text-sec)' }}>Custom Playlists</p>
-                            </div>
-                            <div className="card" style={{ textAlign: 'center', padding: '30px', cursor: 'default' }}>
-                                <h2 style={{ fontSize: '3rem', color: 'var(--primary)', margin: '10px 0' }}>{history.length}</h2>
-                                <p style={{ color: 'var(--text-sec)' }}>Recently Played</p>
-                            </div>
+                            <div className="card" style={{ textAlign: 'center', padding: '30px', cursor: 'default' }}><h2 style={{ fontSize: '3rem', color: 'var(--primary)', margin: '10px 0' }}>{likedSongs.length}</h2><p style={{ color: 'var(--text-sec)' }}>Liked Songs</p></div>
+                            <div className="card" style={{ textAlign: 'center', padding: '30px', cursor: 'default' }}><h2 style={{ fontSize: '3rem', color: 'var(--primary)', margin: '10px 0' }}>{userPlaylists.length}</h2><p style={{ color: 'var(--text-sec)' }}>Custom Playlists</p></div>
+                            <div className="card" style={{ textAlign: 'center', padding: '30px', cursor: 'default' }}><h2 style={{ fontSize: '3rem', color: 'var(--primary)', margin: '10px 0' }}>{history.length}</h2><p style={{ color: 'var(--text-sec)' }}>Recently Played</p></div>
                         </div>
                     </div>
                 )}
 
-                {/* DETAILS */}
                 {tab === 'details' && selectedItem && (
                     <div className="details-view">
-                        <button className="btn-back" onClick={()=>setTab('home')}>
-                            <Icons.Back /> Back
-                        </button>
-                        <div className="details-header">
-                            <img className="details-art" src={getImg(selectedItem.image || selectedItem.songs?.[0]?.image)} alt=""/>
-                            <div className="details-meta">
-                                <h1>{getName(selectedItem)}</h1>
-                                <p>{selectedItem.songs ? `${selectedItem.songs.length} Songs` : getDesc(selectedItem)}</p>
-                                <button className="btn-play-all" onClick={()=>playSong(detailsSongs, 0)}>Play All</button>
-                            </div>
-                        </div>
-                        <div className="track-list">
-                            {detailsSongs.map((s, i) => (
-                                <div key={i} className="track-row">
-                                    <div style={{display:'flex', alignItems:'center', flex:1}} onClick={()=>playSong(detailsSongs, i)}>
-                                        <span className="track-num">{i+1}</span>
-                                        <img className="track-img" src={getImg(s.image)} alt=""/>
-                                        <div className="track-info">
-                                            <div className="track-title">{getName(s)}</div>
-                                            <div className="track-artist">{getDesc(s)}</div>
-                                        </div>
-                                    </div>
-                                    <div className="track-actions">
-                                        <button className={`icon-action ${isLiked(s.id)?'liked':''}`} onClick={()=>toggleLike(s)}><Icons.Heart/></button>
-                                        <button className="icon-action" onClick={()=>{setSongToAdd(s); setShowAddToPlaylistModal(true);}}><Icons.Plus/></button>
-                                    </div>
-                                    <div className="track-dur">{Math.floor(s.duration/60)}:{String(s.duration%60).padStart(2,'0')}</div>
-                                </div>
-                            ))}
-                        </div>
+                        <button className="btn-back" onClick={()=>setTab('home')}><Icons.Back /> Back</button>
+                        <div className="details-header"><img className="details-art" src={getImg(selectedItem.image || selectedItem.songs?.[0]?.image)} alt=""/><div className="details-meta"><h1>{getName(selectedItem)}</h1><p>{selectedItem.songs ? `${selectedItem.songs.length} Songs` : getDesc(selectedItem)}</p><button className="btn-play-all" onClick={()=>playSong(detailsSongs, 0)}>Play All</button></div></div>
+                        <div className="track-list">{detailsSongs.map((s, i) => (<div key={i} className="track-row"><div style={{display:'flex', alignItems:'center', flex:1}} onClick={()=>playSong(detailsSongs, i)}><span className="track-num">{i+1}</span><img className="track-img" src={getImg(s.image)} alt=""/><div className="track-info"><div className="track-title">{getName(s)}</div><div className="track-artist">{getDesc(s)}</div></div></div><div className="track-actions"><button className={`icon-action ${isLiked(s.id)?'liked':''}`} onClick={()=>toggleLike(s)}><Icons.Heart/></button><button className="icon-action" onClick={()=>{setSongToAdd(s); setShowAddToPlaylistModal(true);}}><Icons.Plus/></button></div><div className="track-dur">{Math.floor(s.duration/60)}:{String(s.duration%60).padStart(2,'0')}</div></div>))}</div>
                     </div>
                 )}
 
-                {/* SEARCH RESULTS */}
                 {tab === 'search' && (
                     <div className="section">
-                        {resSongs.length > 0 && (
-                            <>
-                                <div className="section-header">Songs from {APIs[source].name}</div>
-                                <div className="grid">
-                                    {resSongs.map(s => (
-                                        <div key={s.id} className="card" onClick={()=>playSong(resSongs, resSongs.indexOf(s))}>
-                                            <img src={getImg(s.image)} alt=""/>
-                                            <h3>{getName(s)}</h3>
-                                            <p>{getDesc(s)}</p>
-                                            <div className="card-actions">
-                                                <button className={`btn-card-action ${isLiked(s.id)?'liked':''}`} onClick={(e)=>{e.stopPropagation(); toggleLike(s)}}><Icons.Heart/></button>
-                                                <button className="btn-card-action" onClick={(e)=>{e.stopPropagation(); setSongToAdd(s); setShowAddToPlaylistModal(true);}}><Icons.Plus/></button>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </>
-                        )}
-                        {resAlbums.length > 0 && (
-                            <>
-                                <div className="section-header" style={{marginTop:40}}>Albums</div>
-                                <div className="horizontal-scroll">
-                                    {resAlbums.map(a => (
-                                        <div key={a.id} className="card" onClick={()=>handleCardClick(a, 'album')}>
-                                            <img src={getImg(a.image)} alt=""/>
-                                            <h3>{getName(a)}</h3>
-                                            <p>{a.year}</p>
-                                        </div>
-                                    ))}
-                                </div>
-                            </>
-                        )}
-                        {resArtists.length > 0 && (
-                            <>
-                                <div className="section-header" style={{marginTop:40}}>Artists</div>
-                                <div className="horizontal-scroll">
-                                    {resArtists.map(a => (
-                                        <div key={a.id} className="card" onClick={()=>handleCardClick(a, 'artist')}>
-                                            <img src={getImg(a.image)} alt="" style={{borderRadius:'50%'}}/>
-                                            <h3 style={{textAlign:'center'}}>{getName(a)}</h3>
-                                        </div>
-                                    ))}
-                                </div>
-                            </>
-                        )}
-                        {resPlaylists.length > 0 && (
-                            <>
-                                <div className="section-header" style={{marginTop:40}}>Playlists</div>
-                                <div className="horizontal-scroll">
-                                    {resPlaylists.map(p => (
-                                        <div key={p.id} className="card" onClick={()=>handleCardClick(p, 'playlist')}>
-                                            <img src={getImg(p.image)} alt=""/>
-                                            <h3>{getName(p)}</h3>
-                                            <p>{p.language}</p>
-                                        </div>
-                                    ))}
-                                </div>
-                            </>
-                        )}
+                        {resSongs.length > 0 && (<><div className="section-header">Songs from {APIs[source].name}</div><div className="grid">{resSongs.map(s => (<div key={s.id} className="card" onClick={()=>playSong(resSongs, resSongs.indexOf(s))}><img src={getImg(s.image)} alt=""/><h3>{getName(s)}</h3><p>{getDesc(s)}</p><div className="card-actions"><button className={`btn-card-action ${isLiked(s.id)?'liked':''}`} onClick={(e)=>{e.stopPropagation(); toggleLike(s)}}><Icons.Heart/></button><button className="btn-card-action" onClick={(e)=>{e.stopPropagation(); setSongToAdd(s); setShowAddToPlaylistModal(true);}}><Icons.Plus/></button></div></div>))}</div></>)}
+                        {resAlbums.length > 0 && (<><div className="section-header" style={{marginTop:40}}>Albums</div><div className="horizontal-scroll">{resAlbums.map(a => (<div key={a.id} className="card" onClick={()=>handleCardClick(a, 'album')}><img src={getImg(a.image)} alt=""/><h3>{getName(a)}</h3><p>{a.year}</p></div>))}</div></>)}
+                        {resArtists.length > 0 && (<><div className="section-header" style={{marginTop:40}}>Artists</div><div className="horizontal-scroll">{resArtists.map(a => (<div key={a.id} className="card" onClick={()=>handleCardClick(a, 'artist')}><img src={getImg(a.image)} alt="" style={{borderRadius:'50%'}}/><h3 style={{textAlign:'center'}}>{getName(a)}</h3></div>))}</div></>)}
+                        {resPlaylists.length > 0 && (<><div className="section-header" style={{marginTop:40}}>Playlists</div><div className="horizontal-scroll">{resPlaylists.map(p => (<div key={p.id} className="card" onClick={()=>handleCardClick(p, 'playlist')}><img src={getImg(p.image)} alt=""/><h3>{getName(p)}</h3><p>{p.language}</p></div>))}</div></>)}
                     </div>
                 )}
 
-                {/* MOOD VIEW */}
                 {tab === 'mood' && selectedItem && (
                     <div className="section">
-                        <button className="btn-back" onClick={()=>setTab('home')} style={{marginBottom:30}}>
-                            <Icons.Back /> Home
-                        </button>
-                        <div className="details-header" style={{background: selectedItem.color, borderRadius:'24px', padding:'40px', marginBottom:'40px'}}>
-                            <h1 style={{fontSize:'3rem'}}>{selectedItem.name} Mix</h1>
-                            <p>Curated Playlists for your mood</p>
-                        </div>
-                        <div className="grid">
-                            {moodPlaylists.map(p => (
-                                <div key={p.id} className="card" onClick={()=>handleCardClick(p, 'playlist')}>
-                                    <img src={getImg(p.image)} alt=""/>
-                                    <h3>{getName(p)}</h3>
-                                    <p>{p.language}</p>
-                                </div>
-                            ))}
-                        </div>
+                        <button className="btn-back" onClick={()=>setTab('home')} style={{marginBottom:30}}><Icons.Back /> Home</button>
+                        <div className="details-header" style={{background: selectedItem.color, borderRadius:'24px', padding:'40px', marginBottom:'40px'}}><h1 style={{fontSize:'3rem'}}>{selectedItem.name} Mix</h1><p>Curated Playlists for your mood</p></div>
+                        <div className="grid">{moodPlaylists.map(p => (<div key={p.id} className="card" onClick={()=>handleCardClick(p, 'playlist')}><img src={getImg(p.image)} alt=""/><h3>{getName(p)}</h3><p>{p.language}</p></div>))}</div>
                     </div>
                 )}
 
-                {/* --- LIVE HOMEPAGE VIEW --- */}
                 {tab === 'home' && (
                     <>
-                        <div className="hero">
-                            <h1>Welcome Back</h1>
-                            <p>Discover new music, fresh albums, and curated playlists.</p>
-                        </div>
-
-                        {/* 1. History */}
-                        {history.length > 0 && (
-                            <div className="section">
-                                <div className="section-header">Recently Played</div>
-                                <div className="horizontal-scroll">
-                                    {history.map(s => (
-                                        <div key={s.id} className="card" onClick={()=>playSong(history, history.indexOf(s))}>
-                                            <img src={getImg(s.image)} alt=""/>
-                                            <h3>{getName(s)}</h3>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                        
-                        {/* 2. Moods */}
-                        <div className="section">
-                            <div className="section-header">Moods</div>
-                            <div className="horizontal-scroll">
-                                {MOODS.map(m => (
-                                    <div key={m.id} className="card" style={{minWidth:'160px', background:m.color, display:'flex', alignItems:'center', justifyContent:'center'}} onClick={()=>handleCardClick(m, 'mood')}>
-                                        <h3 style={{fontSize:'1.2rem', color:'white', textAlign:'center'}}>{m.name}</h3>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* 3. Trending */}
-                        {homeData.trending.length > 0 && (
-                            <div className="section">
-                                <div className="section-header">Trending Now</div>
-                                <div className="horizontal-scroll">
-                                    {homeData.trending.map(s => (
-                                        <div key={s.id} className="card" onClick={()=>handleCardClick(s, 'song')}>
-                                            <img src={getImg(s.image)} alt=""/>
-                                            <h3>{getName(s)}</h3>
-                                            <p>{getDesc(s)}</p>
-                                            <div className="card-actions">
-                                                <button className={`btn-card-action ${isLiked(s.id)?'liked':''}`} onClick={(e)=>{e.stopPropagation(); toggleLike(s)}}><Icons.Heart/></button>
-                                                <button className="btn-card-action" onClick={(e)=>{e.stopPropagation(); setSongToAdd(s); setShowAddToPlaylistModal(true);}}><Icons.Plus/></button>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* 4. Top Charts */}
-                        {homeData.charts.length > 0 && (
-                            <div className="section">
-                                <div className="section-header">Top Charts</div>
-                                <div className="horizontal-scroll">
-                                    {homeData.charts.map(p => (
-                                        <div key={p.id} className="card" onClick={()=>handleCardClick(p, 'playlist')}>
-                                            <img src={getImg(p.image)} alt=""/>
-                                            <h3>{getName(p)}</h3>
-                                            <p>{p.language}</p>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* 5. New Albums */}
-                        {homeData.newAlbums.length > 0 && (
-                            <div className="section">
-                                <div className="section-header">New Albums</div>
-                                <div className="horizontal-scroll">
-                                    {homeData.newAlbums.map(a => (
-                                        <div key={a.id} className="card" onClick={()=>handleCardClick(a, 'album')}>
-                                            <img src={getImg(a.image)} alt=""/>
-                                            <h3>{getName(a)}</h3>
-                                            <p>{a.year}</p>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* 6. Radio (Artists) */}
-                        {homeData.radio.length > 0 && (
-                            <div className="section">
-                                <div className="section-header">Radio Stations</div>
-                                <div className="horizontal-scroll">
-                                    {homeData.radio.map(a => (
-                                        <div key={a.id} className="card" onClick={()=>handleCardClick(a, 'artist')}>
-                                            <img src={getImg(a.image)} alt="" style={{borderRadius:'50%'}}/>
-                                            <h3 style={{textAlign:'center'}}>{getName(a)}</h3>
-                                            <p style={{textAlign:'center', fontSize:'0.8rem'}}>Artist Radio</p>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* 7. Top Artists */}
-                        {homeData.topArtists.length > 0 && (
-                            <div className="section">
-                                <div className="section-header">Top Artists</div>
-                                <div className="horizontal-scroll">
-                                    {homeData.topArtists.map(a => (
-                                        <div key={a.id} className="card" onClick={()=>handleCardClick(a, 'artist')}>
-                                            <img src={getImg(a.image)} alt="" style={{borderRadius:'50%'}}/>
-                                            <h3 style={{textAlign:'center'}}>{getName(a)}</h3>
-                                            <p style={{textAlign:'center', fontSize:'0.8rem'}}>Artist</p>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* 8. Editorial */}
-                        {homeData.editorial.length > 0 && (
-                            <div className="section">
-                                <div className="section-header">Editorial Picks</div>
-                                <div className="horizontal-scroll">
-                                    {homeData.editorial.map(p => (
-                                        <div key={p.id} className="card" onClick={()=>handleCardClick(p, 'playlist')}>
-                                            <img src={getImg(p.image)} alt=""/>
-                                            <h3>{getName(p)}</h3>
-                                            <p>Featured</p>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* 9. Fresh Hits */}
-                        {homeData.fresh.length > 0 && (
-                            <div className="section">
-                                <div className="section-header">Fresh Hits</div>
-                                <div className="horizontal-scroll">
-                                    {homeData.fresh.map(p => (
-                                        <div key={p.id} className="card" onClick={()=>handleCardClick(p, 'playlist')}>
-                                            <img src={getImg(p.image)} alt=""/>
-                                            <h3>{getName(p)}</h3>
-                                            <p>New Music</p>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* 10. 90s Magic */}
-                        {homeData.nineties.length > 0 && (
-                            <div className="section">
-                                <div className="section-header">Best of 90s</div>
-                                <div className="horizontal-scroll">
-                                    {homeData.nineties.map(p => (
-                                        <div key={p.id} className="card" onClick={()=>handleCardClick(p, 'playlist')}>
-                                            <img src={getImg(p.image)} alt=""/>
-                                            <h3>{getName(p)}</h3>
-                                            <p>Nostalgia</p>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* 11. Hindi Pop */}
-                        {homeData.hindiPop.length > 0 && (
-                            <div className="section">
-                                <div className="section-header">New Hindi Pop</div>
-                                <div className="horizontal-scroll">
-                                    {homeData.hindiPop.map(a => (
-                                        <div key={a.id} className="card" onClick={()=>handleCardClick(a, 'album')}>
-                                            <img src={getImg(a.image)} alt=""/>
-                                            <h3>{getName(a)}</h3>
-                                            <p>{a.year}</p>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
+                        <div className="hero"><h1>Welcome Back</h1><p>Discover new music, fresh albums, and curated playlists.</p></div>
+                        {history.length > 0 && (<div className="section"><div className="section-header">Recently Played</div><div className="horizontal-scroll">{history.map(s => (<div key={s.id} className="card" onClick={()=>playSong(history, history.indexOf(s))}><img src={getImg(s.image)} alt=""/><h3>{getName(s)}</h3></div>))}</div></div>)}
+                        <div className="section"><div className="section-header">Moods</div><div className="horizontal-scroll">{MOODS.map(m => (<div key={m.id} className="card" style={{minWidth:'160px', background:m.color, display:'flex', alignItems:'center', justifyContent:'center'}} onClick={()=>handleCardClick(m, 'mood')}><h3 style={{fontSize:'1.2rem', color:'white', textAlign:'center'}}>{m.name}</h3></div>))}</div></div>
+                        {homeData.trending.length > 0 && (<div className="section"><div className="section-header">Trending Now</div><div className="horizontal-scroll">{homeData.trending.map(s => (<div key={s.id} className="card" onClick={()=>handleCardClick(s, 'song')}><img src={getImg(s.image)} alt=""/><h3>{getName(s)}</h3><p>{getDesc(s)}</p><div className="card-actions"><button className={`btn-card-action ${isLiked(s.id)?'liked':''}`} onClick={(e)=>{e.stopPropagation(); toggleLike(s)}}><Icons.Heart/></button><button className="btn-card-action" onClick={(e)=>{e.stopPropagation(); setSongToAdd(s); setShowAddToPlaylistModal(true);}}><Icons.Plus/></button></div></div>))}</div></div>)}
+                        {homeData.charts.length > 0 && (<div className="section"><div className="section-header">Top Charts</div><div className="horizontal-scroll">{homeData.charts.map(p => (<div key={p.id} className="card" onClick={()=>handleCardClick(p, 'playlist')}><img src={getImg(p.image)} alt=""/><h3>{getName(p)}</h3><p>{p.language}</p></div>))}</div></div>)}
+                        {homeData.newAlbums.length > 0 && (<div className="section"><div className="section-header">New Albums</div><div className="horizontal-scroll">{homeData.newAlbums.map(a => (<div key={a.id} className="card" onClick={()=>handleCardClick(a, 'album')}><img src={getImg(a.image)} alt=""/><h3>{getName(a)}</h3><p>{a.year}</p></div>))}</div></div>)}
+                        {homeData.radio.length > 0 && (<div className="section"><div className="section-header">Radio Stations</div><div className="horizontal-scroll">{homeData.radio.map(a => (<div key={a.id} className="card" onClick={()=>handleCardClick(a, 'artist')}><img src={getImg(a.image)} alt="" style={{borderRadius:'50%'}}/><h3 style={{textAlign:'center'}}>{getName(a)}</h3><p style={{textAlign:'center', fontSize:'0.8rem'}}>Artist Radio</p></div>))}</div></div>)}
+                        {homeData.topArtists.length > 0 && (<div className="section"><div className="section-header">Top Artists</div><div className="horizontal-scroll">{homeData.topArtists.map(a => (<div key={a.id} className="card" onClick={()=>handleCardClick(a, 'artist')}><img src={getImg(a.image)} alt="" style={{borderRadius:'50%'}}/><h3 style={{textAlign:'center'}}>{getName(a)}</h3><p style={{textAlign:'center', fontSize:'0.8rem'}}>Artist</p></div>))}</div></div>)}
+                        {homeData.editorial.length > 0 && (<div className="section"><div className="section-header">Editorial Picks</div><div className="horizontal-scroll">{homeData.editorial.map(p => (<div key={p.id} className="card" onClick={()=>handleCardClick(p, 'playlist')}><img src={getImg(p.image)} alt=""/><h3>{getName(p)}</h3><p>Featured</p></div>))}</div></div>)}
+                        {homeData.fresh.length > 0 && (<div className="section"><div className="section-header">Fresh Hits</div><div className="horizontal-scroll">{homeData.fresh.map(p => (<div key={p.id} className="card" onClick={()=>handleCardClick(p, 'playlist')}><img src={getImg(p.image)} alt=""/><h3>{getName(p)}</h3><p>New Music</p></div>))}</div></div>)}
+                        {homeData.nineties.length > 0 && (<div className="section"><div className="section-header">Best of 90s</div><div className="horizontal-scroll">{homeData.nineties.map(p => (<div key={p.id} className="card" onClick={()=>handleCardClick(p, 'playlist')}><img src={getImg(p.image)} alt=""/><h3>{getName(p)}</h3><p>Nostalgia</p></div>))}</div></div>)}
+                        {homeData.hindiPop.length > 0 && (<div className="section"><div className="section-header">New Hindi Pop</div><div className="horizontal-scroll">{homeData.hindiPop.map(a => (<div key={a.id} className="card" onClick={()=>handleCardClick(a, 'album')}><img src={getImg(a.image)} alt=""/><h3>{getName(a)}</h3><p>{a.year}</p></div>))}</div></div>)}
                     </>
                 )}
 
-                {/* LIBRARY */}
                 {tab === 'library' && (
                     <div className="section">
                         <div className="section-header">Liked Songs</div>
                         <div className="grid">
                             {likedSongs.map((s, i) => (
                                 <div key={s.id} className="card" onClick={()=>playSong(likedSongs, i)}>
-                                    <img src={getImg(s.image)} alt=""/>
-                                    <h3>{getName(s)}</h3>
-                                    <p>{getDesc(s)}</p>
-                                    <div className="card-actions" style={{opacity:1}}>
-                                        <button className="btn-card-action liked" onClick={(e)=>{e.stopPropagation(); toggleLike(s)}}><Icons.Heart/></button>
-                                    </div>
+                                    <img src={getImg(s.image)} alt=""/><h3>{getName(s)}</h3><p>{getDesc(s)}</p>
+                                    <div className="card-actions" style={{opacity:1}}><button className="btn-card-action liked" onClick={(e)=>{e.stopPropagation(); toggleLike(s)}}><Icons.Heart/></button></div>
                                 </div>
                             ))}
                         </div>
@@ -1497,34 +986,21 @@ function App() {
         <div className={`player-bar ${currentSong ? 'visible' : ''}`} style={{transform: currentSong ? 'translateY(0)' : 'translateY(200px)', transition:'transform 0.3s', zIndex: 100}}>
             {currentSong && (
                 <>
-                    {/* 1. Track Info (With Mini DiscPlayer) */}
                     <div className="p-track" onClick={() => setTheaterMode(!theaterMode)} style={{cursor: 'pointer'}}>
                         <div style={{ position: 'relative', width: '45px', height: '45px', flexShrink: 0, marginRight: '10px' }}>
-                            <img 
-                                src={getImg(currentSong.image)} 
-                                alt="" 
-                                className={`spin-anim ${!isPlaying ? 'spin-paused' : ''}`}
-                                style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%', boxShadow: '0 0 0 3px #111' }} 
-                            />
+                            <img src={getImg(currentSong.image)} alt="" className={`spin-anim ${!isPlaying ? 'spin-paused' : ''}`} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%', boxShadow: '0 0 0 3px #111' }} />
                             <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '8px', height: '8px', background: '#222', borderRadius: '50%' }}></div>
                         </div>
-
-                        <div style={{overflow: 'hidden'}}>
-                            <h4 style={{fontSize:'0.9rem', color:'white', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', margin: 0}}>{getName(currentSong)}</h4>
-                            <p style={{fontSize:'0.8rem', color:'#aaa', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', margin: 0}}>{getDesc(currentSong)}</p>
-                        </div>
+                        <div style={{overflow: 'hidden'}}><h4 style={{fontSize:'0.9rem', color:'white', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', margin: 0}}>{getName(currentSong)}</h4><p style={{fontSize:'0.8rem', color:'#aaa', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', margin: 0}}>{getDesc(currentSong)}</p></div>
                     </div>
                     
-                    {/* 2. Desktop Center Controls */}
                     <div className="p-center">
                         <div className="p-controls">
                             <button className={`btn-icon ${isShuffle?'active':''}`} onClick={toggleShuffle}><Icons.Shuffle/></button>
                             <button className="btn-icon" onClick={(e)=>{e.stopPropagation(); playSong(queue, qIndex-1)}}><Icons.SkipBack/></button>
                             <button className="btn-play" onClick={(e)=>{e.stopPropagation(); togglePlay()}}>{isPlaying ? <Icons.Pause/> : <Icons.Play/>}</button>
                             <button className="btn-icon" onClick={(e)=>{e.stopPropagation(); playSong(queue, qIndex+1)}}><Icons.SkipFwd/></button>
-                            <button className={`btn-icon ${repeatMode!=='none'?'active':''}`} onClick={toggleRepeat}>
-                                {repeatMode==='one' ? <Icons.RepeatOne/> : <Icons.Repeat/>}
-                            </button>
+                            <button className={`btn-icon ${repeatMode!=='none'?'active':''}`} onClick={toggleRepeat}>{repeatMode==='one' ? <Icons.RepeatOne/> : <Icons.Repeat/>}</button>
                         </div>
                         <div className="progress-container">
                             <span>{formatTime(progress)}</span>
@@ -1536,38 +1012,19 @@ function App() {
                         </div>
                     </div> 
 
-                    {/* 3. Desktop Right Controls */}
                     <div className="p-right">
                         <button className={`btn-icon ${showLyrics?'active':''}`} onClick={fetchLyrics}><Icons.Mic/></button>
                         <button className={`btn-icon ${showQueue?'active':''}`} onClick={()=>setShowQueue(!showQueue)}><Icons.List/></button>
-                        <input type="range" className="volume-slider" min="0" max="1" step="0.1" value={volume} 
-                               onChange={e => {
-                                  setVolume(e.target.value); 
-                                  audioRef.current.volume=e.target.value;
-                                  if (ytPlayerRef.current?.setVolume) ytPlayerRef.current.setVolume(e.target.value * 100);
-                               }}/>
-                        
-                        <select 
-                            className="quality-select" value={quality} onChange={e => handleQualityChange(e.target.value)}
-                            style={{ background: 'rgba(255, 255, 255, 0.15)', color: 'white', border: '1px solid rgba(255, 255, 255, 0.2)', borderRadius: '20px', padding: '6px 12px', marginLeft: '0', cursor: 'pointer', outline: 'none', fontWeight: '600', fontSize: '0.75rem', backdropFilter: 'blur(10px)' }}
-                        >
-                            <option value="96kbps" style={{color: 'black'}}>Low</option>
-                            <option value="160kbps" style={{color: 'black'}}>Medium</option>
-                            <option value="320kbps" style={{color: 'black'}}>High</option>
-                            <option value="Premium" style={{color: 'black'}}>Premium</option>
+                        <input type="range" className="volume-slider" min="0" max="1" step="0.1" value={volume} onChange={e => { setVolume(e.target.value); audioRef.current.volume=e.target.value; if (ytPlayerRef.current?.setVolume) ytPlayerRef.current.setVolume(e.target.value * 100); }}/>
+                        <select className="quality-select" value={quality} onChange={e => handleQualityChange(e.target.value)} style={{ background: 'rgba(255, 255, 255, 0.15)', color: 'white', border: '1px solid rgba(255, 255, 255, 0.2)', borderRadius: '20px', padding: '6px 12px', marginLeft: '0', cursor: 'pointer', outline: 'none', fontWeight: '600', fontSize: '0.75rem', backdropFilter: 'blur(10px)' }}>
+                            <option value="96kbps" style={{color: 'black'}}>Low</option><option value="160kbps" style={{color: 'black'}}>Medium</option><option value="320kbps" style={{color: 'black'}}>High</option><option value="Premium" style={{color: 'black'}}>Premium</option>
                         </select>
-
-                        <button className="btn-icon" onClick={() => setTheaterMode(!theaterMode)} style={{marginLeft: '0'}}>
-                            {theaterMode ? <Icons.Minimize/> : <Icons.Maximize/>}
-                        </button>
+                        <button className="btn-icon" onClick={() => setTheaterMode(!theaterMode)} style={{marginLeft: '0'}}>{theaterMode ? <Icons.Minimize/> : <Icons.Maximize/>}</button>
                     </div>
 
-                    {/* 4. MOBILE CONTROLS */}
                     <div className="mobile-controls"> 
                        <button className="btn-icon" onClick={(e)=>{e.stopPropagation(); playSong(queue, qIndex-1)}} style={{color: 'white', padding: 0, background: 'transparent', border: 'none'}}><Icons.SkipBack/></button>
-                       <button className="btn-play-mobile" onClick={(e)=>{e.stopPropagation(); togglePlay()}} style={{background: '#d4acfb', color: 'black', border: 'none', borderRadius: '50%', width: '45px', height: '45px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0}}>
-                           {isPlaying ? <Icons.Pause/> : <Icons.Play/>}
-                       </button>
+                       <button className="btn-play-mobile" onClick={(e)=>{e.stopPropagation(); togglePlay()}} style={{background: '#d4acfb', color: 'black', border: 'none', borderRadius: '50%', width: '45px', height: '45px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0}}>{isPlaying ? <Icons.Pause/> : <Icons.Play/>}</button>
                        <button className="btn-icon" onClick={(e)=>{e.stopPropagation(); playSong(queue, qIndex+1)}} style={{color: 'white', padding: 0, background: 'transparent', border: 'none'}}><Icons.SkipFwd/></button>
                     </div>
                 </>
