@@ -143,36 +143,72 @@ const APIs = {
       }));
     }
   },
-  // --- REVERTED YOUTUBE INTEGRATION (Works perfectly with your current backend) ---
   youtube: {
     name: 'YouTube',
     apiBase: import.meta.env.VITE_YT_API_BASE || 'http://localhost:3000',
-    
+
+    // Internal: fetch raw results from your backend for any query string
+    _fetchResults: async function(q) {
+      const cleanBase = this.apiBase.replace(/\/$/, '');
+      const res = await fetch(`${cleanBase}/api/stream?query=${encodeURIComponent(q)}`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    },
+
+    // Internal: map a raw backend item → unified song object
+    _mapItem: function(item, allItems) {
+      let img = `https://i.ytimg.com/vi/${item.videoId}/hqdefault.jpg`;
+      if (item.thumbnails?.length > 0) {
+        img = item.thumbnails[item.thumbnails.length - 1].url;
+        img = img.replace(/=w\d+-h\d+.*/, '=w500-h500-l90-rj');
+      }
+      return {
+        id: item.videoId,
+        name: item.name || item.title || 'Unknown',
+        primaryArtists: item.artists?.[0]?.name || 'YouTube Artist',
+        image: [{ url: img }],
+        duration: item.duration || 0,
+        source: 'youtube',
+        // Sibling videoIds used as automatic fallbacks when a video is blocked/restricted
+        _ytCandidates: (allItems || []).map(i => i.videoId).filter(id => id !== item.videoId),
+        _ytCandidateIdx: 0,
+      };
+    },
+
+    // Public search: appends "song" to bias toward music; attaches fallback candidates
     search: async function(query) {
       try {
-          const cleanBase = this.apiBase.replace(/\/$/, '');
-          const res = await fetch(`${cleanBase}/api/stream?query=${encodeURIComponent(query)}`);
-          if (!res.ok) return [];
-          const data = await res.json();
-          
-          return (Array.isArray(data) ? data : []).map(item => {
-              let highResImage = "https://via.placeholder.com/150";
-              if (item.thumbnails && item.thumbnails.length > 0) {
-                 highResImage = item.thumbnails[item.thumbnails.length - 1].url;
-                 highResImage = highResImage.replace(/=w\d+-h\d+.*/, '=w500-h500-l90-rj');
-              }
-              return {
-                  id: item.videoId,
-                  name: item.name || item.title,
-                  primaryArtists: item.artists?.[0]?.name || "YouTube Artist",
-                  image: [{ url: highResImage }],
-                  duration: item.duration || 0,
-                  source: 'youtube'
-              };
-          });
+        const enriched = /song|audio|lyrics/i.test(query) ? query : `${query} song`;
+        const items = await this._fetchResults(enriched);
+        if (!items.length) return [];
+        return items.map(item => this._mapItem(item, items));
       } catch (err) {
-          console.error("YouTube Search Failed:", err);
-          return [];
+        console.error("YouTube Search Failed:", err);
+        return [];
+      }
+    },
+
+    // Returns the next fallback videoId from pre-fetched siblings, or null if exhausted
+    nextCandidate: function(song) {
+      if (!song._ytCandidates?.length) return null;
+      const idx = song._ytCandidateIdx ?? 0;
+      if (idx >= song._ytCandidates.length) return null;
+      song._ytCandidateIdx = idx + 1;
+      return song._ytCandidates[idx];
+    },
+
+    // Last resort: re-search with artist name + "official audio" for a fresh candidate pool
+    retrySearch: async function(song) {
+      try {
+        const q = `${song.name} ${song.primaryArtists !== 'YouTube Artist' ? song.primaryArtists : ''} official audio`.trim();
+        const items = await this._fetchResults(q);
+        if (!items.length) return null;
+        song._ytCandidates = items.map(i => i.videoId);
+        song._ytCandidateIdx = 0;
+        return this.nextCandidate(song);
+      } catch {
+        return null;
       }
     }
   }
@@ -310,6 +346,9 @@ function App() {
   useEffect(() => { setHistory(JSON.parse(localStorage.getItem('musiq_history') || '[]')); }, []);
 
   // --- YOUTUBE IFRAME INITIALIZATION ---
+  // ytErrorRetryRef tracks how many times we've tried fallback for the current song
+  const ytErrorRetryRef = useRef(0);
+
   const initYTPlayer = (videoId = '') => {
     if (ytPlayerRef.current && typeof ytPlayerRef.current.destroy === 'function') {
       try { ytPlayerRef.current.destroy(); } catch (e) {}
@@ -326,14 +365,40 @@ function App() {
         'onStateChange': (event) => {
           if (event.data === window.YT.PlayerState.PLAYING) {
             clearTimeout(watchdogRef.current);
+            ytErrorRetryRef.current = 0; // reset retry counter on successful play
             setIsPlaying(true);
           }
           if (event.data === window.YT.PlayerState.PAUSED) { setIsPlaying(false); }
           if (event.data === window.YT.PlayerState.ENDED) { onTrackEndRef.current(); }
         },
-        'onError': () => {
-          console.warn("YT Player Error - Attempting Reset...");
-          if (currentSongRef.current?.id) initYTPlayer(currentSongRef.current.id);
+        // YT error codes: 2=bad videoId, 5=HTML5 error, 100=not found/private,
+        // 101/150=embed not allowed. All mean "try the next candidate".
+        'onError': async (event) => {
+          const errorCode = event.data;
+          console.warn(`YT Player Error ${errorCode} for videoId: ${videoId}`);
+          const song = currentSongRef.current;
+          if (!song || song.source !== 'youtube') return;
+
+          // Try next sibling candidate first (fast, no network call)
+          let nextId = APIs.youtube.nextCandidate(song);
+
+          // If siblings exhausted, do a fresh search with artist name (one retry max)
+          if (!nextId && ytErrorRetryRef.current < 1) {
+            ytErrorRetryRef.current += 1;
+            toast.loading('Finding alternative version…', { id: 'yt-retry', duration: 3000 });
+            nextId = await APIs.youtube.retrySearch(song);
+          }
+
+          if (nextId) {
+            console.log(`YT fallback → trying videoId: ${nextId}`);
+            // Update the current song's id so the player tracks the right video
+            song.id = nextId;
+            initYTPlayer(nextId);
+          } else {
+            ytErrorRetryRef.current = 0;
+            toast.error('This video is unavailable. Try a different result.', { id: 'yt-retry' });
+            setIsPlaying(false);
+          }
         }
       }
     });
@@ -435,11 +500,17 @@ function App() {
 
     if (s.source === 'youtube') {
       audioRef.current.pause(); 
+      ytErrorRetryRef.current = 0; // reset fallback counter for new song
       clearTimeout(watchdogRef.current);
       watchdogRef.current = setTimeout(() => {
-        console.warn("YouTube Freeze detected. Re-initializing player...");
-        initYTPlayer(s.id);
-      }, 3000);
+        // Watchdog: if still not playing after 5s, try next candidate
+        if (!isPlaying) {
+          console.warn("YouTube freeze detected. Trying next candidate...");
+          const nextId = APIs.youtube.nextCandidate(s);
+          if (nextId) { s.id = nextId; initYTPlayer(nextId); }
+          else initYTPlayer(s.id); // last resort: re-init same id
+        }
+      }, 5000);
 
       if (ytReady && ytPlayerRef.current && typeof ytPlayerRef.current.loadVideoById === 'function') {
         ytPlayerRef.current.loadVideoById(s.id);
