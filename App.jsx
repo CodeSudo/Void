@@ -36,7 +36,6 @@ import { doc, setDoc, getDoc, updateDoc, arrayUnion, arrayRemove, collection, ad
 
 const API_BASE = "https://jio-codesudo.vercel.app/api";
 
-// --- API ENGINE ---
 const APIs = {
   saavn: {
     name: 'JioSaavn',
@@ -162,11 +161,16 @@ function App() {
   const [isShuffle, setIsShuffle] = useState(false);
   const [repeatMode, setRepeatMode] = useState('none'); 
 
-  // --- REFS FOR AUTO-FALLBACK ---
+  // --- REFS FOR AUTO-FALLBACK & STABILITY ---
   const currentSongRef = useRef(null);
   const queueRef = useRef([]);
-  const qIndexRef = useRef(-1);
-  useEffect(() => { currentSongRef.current = currentSong; queueRef.current = queue; qIndexRef.current = qIndex; }, [currentSong, queue, qIndex]);
+  const fallbackLockRef = useRef(false); // <--- PREVENTS INFINITE LOOP
+  const activeIndexRef = useRef(-1);     // <--- PREVENTS WRONG SONG PLAYING
+
+  useEffect(() => { 
+      currentSongRef.current = currentSong; 
+      queueRef.current = queue; 
+  }, [currentSong, queue]);
 
   const containerRef = useRef(null);
   useGSAP(() => {
@@ -251,16 +255,23 @@ function App() {
     } catch(e) { toast.error("Error loading lyrics", { id: toastId }); }
   };
 
-  // --- PLAYBACK ENGINE ---
+  // --- ROBUST PLAYBACK ENGINE ---
   const playSong = async (list, idx) => {
     if(!list || !list[idx]) return;
-    setQueue(list); setQIndex(idx);
+    
+    // 1. Update State & Refs Immediately
+    setQueue(list); 
+    setQIndex(idx);
+    activeIndexRef.current = idx; // <--- SYNC REF INSTANTLY
+    fallbackLockRef.current = false; // Reset lock for new song
+
     const s = list[idx];
     setCurrentSong(s);
     addToHistory(s);
 
     if (s.source === 'youtube') {
-      audioRef.current.pause(); clearTimeout(watchdogRef.current);
+      audioRef.current.pause(); 
+      clearTimeout(watchdogRef.current);
       watchdogRef.current = setTimeout(() => { initYTPlayer(s.id); }, 3000);
       if (ytReady && ytPlayerRef.current && typeof ytPlayerRef.current.loadVideoById === 'function') { ytPlayerRef.current.loadVideoById(s.id); ytPlayerRef.current.playVideo(); } else { initYTPlayer(s.id); }
       return; 
@@ -287,17 +298,24 @@ function App() {
             audioRef.current.play().catch(()=>{}); setIsPlaying(true);
         } else { audioRef.current.play(); setIsPlaying(true); }
     } else { 
-        // Force fallback if no URL found immediately
-        handleAudioError();
+        handleAudioError(); // Force fallback if empty
     }
   };
 
-  // --- AUTO-FALLBACK HANDLER ---
+  // --- SAFE AUTO-FALLBACK HANDLER ---
   const handleAudioError = async () => {
+      // 1. Prevent Loops & Duplicate Calls
+      if (fallbackLockRef.current) return;
+      
       const song = currentSongRef.current;
-      if (!song || song.source === 'youtube') return; // Prevent loops
+      if (!song || song.source === 'youtube') return;
 
-      const toastId = toast.loading("Audio Unavailable. Switching to YouTube...");
+      // 2. Lock & Stop Audio to prevent 330 requests
+      fallbackLockRef.current = true;
+      audioRef.current.pause();
+      audioRef.current.src = ""; // Clear broken source
+
+      const toastId = toast.loading("Audio Unavailable. Auto-Switching...");
       try {
           const query = `${song.name} ${song.primaryArtists || ''} audio`;
           const ytResults = await APIs.youtube.search(query);
@@ -305,18 +323,21 @@ function App() {
           if (ytResults.length > 0) {
               const fallbackSong = ytResults[0];
               const hybridSong = { ...song, id: fallbackSong.id, source: 'youtube', duration: fallbackSong.duration || song.duration };
+              
               const newQueue = [...queueRef.current];
-              const currentIndex = qIndexRef.current;
+              const currentIndex = activeIndexRef.current; // Use SYNC ref
               
               if (currentIndex >= 0 && currentIndex < newQueue.length) {
                   newQueue[currentIndex] = hybridSong;
                   setQueue(newQueue);
-                  // Pass the index explicitly to avoid finding the wrong song
+                  // Play immediately
                   playSong(newQueue, currentIndex);
                   toast.success("Playing from YouTube", { id: toastId });
               }
-          } else { toast.error("Playback failed. No alternative found.", { id: toastId }); }
+          } else { toast.error("Playback failed. No alternative.", { id: toastId }); }
       } catch (e) { toast.error("Playback error.", { id: toastId }); }
+      
+      // We don't unlock here because playSong will reset it when called
   };
 
   const handleQualityChange = (newQ) => { setQuality(newQ); if(currentSong && isPlaying) { playSong(queue, qIndex); toast.success(`Quality set to ${newQ}`); } };
@@ -350,7 +371,7 @@ function App() {
     const handleEnd = () => onTrackEndRef.current();
     a.addEventListener('timeupdate', updateTime); 
     a.addEventListener('ended', handleEnd);
-    a.addEventListener('error', handleAudioError); // <-- ERROR LISTENER
+    a.addEventListener('error', handleAudioError); // <-- SAFE LISTENER
     return () => { a.removeEventListener('timeupdate', updateTime); a.removeEventListener('ended', handleEnd); a.removeEventListener('error', handleAudioError); };
   }, []);
 
@@ -392,7 +413,7 @@ function App() {
           .card { background: rgba(255, 255, 255, 0.05) !important; backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.05); }
           .header { background: transparent !important; }
           
-          /* --- FIXED GRID LAYOUT (SOLVES VOLUME BAR ISSUE) --- */
+          /* --- FIXED GRID LAYOUT --- */
           .player-bar { background: rgba(10, 10, 10, 0.85) !important; backdrop-filter: blur(30px); border-top: 1px solid rgba(255,255,255,0.05); display: grid; grid-template-columns: 1fr minmax(auto, 600px) 1fr; align-items: center; width: 100%; box-sizing: border-box; padding: 0 20px; }
           .p-track { justify-self: start; display: flex; align-items: center; overflow: hidden; max-width: 100%; }
           .p-center { justify-self: center; width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; }
@@ -436,13 +457,10 @@ function App() {
                 {tab === 'profile' && (<div className="profile-view"><div style={{ display: 'flex', alignItems: 'center', gap: '24px', background: 'var(--bg-card)', padding: '40px', borderRadius: '24px', marginBottom: '40px', border: '1px solid var(--border)', flexWrap: 'wrap' }}><div style={{ width: '80px', height: '80px', borderRadius: '50%', background: 'var(--primary)', color: 'var(--on-primary)', fontSize: '2.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>{user.email[0].toUpperCase()}</div><div style={{ flex: 1, minWidth: '200px' }}><h1 style={{ fontSize: '2rem', marginBottom: '8px' }}>My Account</h1><p style={{ color: 'var(--text-sec)' }}>{user.email}</p></div><button onClick={() => signOut(auth)} style={{ padding: '12px 24px', background: '#e57373', color: 'white', border: 'none', borderRadius: '50px', cursor: 'pointer', fontWeight: 'bold', fontSize: '1rem' }}>Logout</button></div></div>)}
                 {tab === 'details' && selectedItem && (<div className="details-view"><button className="btn-back" onClick={()=>setTab('home')}><Icons.Back /> Back</button><div className="details-header"><img className="details-art" src={getImg(selectedItem.image || selectedItem.songs?.[0]?.image)} alt=""/><div className="details-meta"><h1>{getName(selectedItem)}</h1><p>{selectedItem.songs ? `${selectedItem.songs.length} Songs` : getDesc(selectedItem)}</p><button className="btn-play-all" onClick={()=>playSong(detailsSongs, 0)}>Play All</button></div></div><div className="track-list">{detailsSongs.map((s, i) => (<div key={i} className="track-row"><div style={{display:'flex', alignItems:'center', flex:1}} onClick={()=>playSong(detailsSongs, i)}><span className="track-num">{i+1}</span><img className="track-img" src={getImg(s.image)} alt=""/><div className="track-info"><div className="track-title">{getName(s)}</div><div className="track-artist">{getDesc(s)}</div></div></div><div className="track-actions"><button className={`icon-action ${isLiked(s.id)?'liked':''}`} onClick={()=>toggleLike(s)}><Icons.Heart/></button><button className="icon-action" onClick={()=>{setSongToAdd(s); setShowAddToPlaylistModal(true);}}><Icons.Plus/></button></div><div className="track-dur">{Math.floor(s.duration/60)}:{String(s.duration%60).padStart(2,'0')}</div></div>))}</div></div>)}
                 
-                {/* --- FIX: REPLACED 'indexOf' WITH DIRECT INDEX 'i' IN SEARCH RESULTS --- */}
                 {tab === 'search' && (<div className="section">{resSongs.length > 0 && (<><div className="section-header">Songs from {APIs[source].name}</div><div className="grid">{resSongs.map((s, i) => (<div key={i} className="card" onClick={()=>playSong(resSongs, i)}><img src={getImg(s.image)} alt=""/><h3>{getName(s)}</h3><p>{getDesc(s)}</p><div className="card-actions"><button className={`btn-card-action ${isLiked(s.id)?'liked':''}`} onClick={(e)=>{e.stopPropagation(); toggleLike(s)}}><Icons.Heart/></button><button className="btn-card-action" onClick={(e)=>{e.stopPropagation(); setSongToAdd(s); setShowAddToPlaylistModal(true);}}><Icons.Plus/></button></div></div>))}</div></>)}</div>)}
                 
-                {/* --- FIX: REPLACED 'indexOf' WITH DIRECT INDEX 'i' IN HOME LISTS --- */}
                 {tab === 'home' && (<><div className="hero"><h1>Welcome Back</h1><p>Discover.</p></div>{history.length > 0 && (<div className="section"><div className="section-header">Recently Played</div><div className="horizontal-scroll">{history.map((s, i) => (<div key={i} className="card" onClick={()=>playSong(history, i)}><img src={getImg(s.image)} alt=""/><h3>{getName(s)}</h3></div>))}</div></div>)}<div className="section"><div className="section-header">Moods</div><div className="horizontal-scroll">{MOODS.map(m => (<div key={m.id} className="card" style={{minWidth:'160px', background:m.color, display:'flex', alignItems:'center', justifyContent:'center'}} onClick={()=>handleCardClick(m, 'mood')}><h3 style={{fontSize:'1.2rem', color:'white', textAlign:'center'}}>{m.name}</h3></div>))}</div></div>{homeData.trending.length > 0 && (<div className="section"><div className="section-header">Trending Now</div><div className="horizontal-scroll">{homeData.trending.map((s, i) => (<div key={i} className="card" onClick={()=>handleCardClick(s, 'song')}><img src={getImg(s.image)} alt=""/><h3>{getName(s)}</h3><p>{getDesc(s)}</p></div>))}</div></div>)}</>)}
                 
-                {/* --- FIX: REPLACED 'indexOf' WITH DIRECT INDEX 'i' IN LIBRARY --- */}
                 {tab === 'library' && (<div className="section"><div className="section-header">Liked Songs</div><div className="grid">{likedSongs.map((s, i) => (<div key={i} className="card" onClick={()=>playSong(likedSongs, i)}><img src={getImg(s.image)} alt=""/><h3>{getName(s)}</h3><p>{getDesc(s)}</p><div className="card-actions" style={{opacity:1}}><button className="btn-card-action liked" onClick={(e)=>{e.stopPropagation(); toggleLike(s)}}><Icons.Heart/></button></div></div>))}</div></div>)}
             </div>
         </div>
