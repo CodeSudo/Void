@@ -147,69 +147,46 @@ const APIs = {
     name: 'YouTube',
     apiBase: import.meta.env.VITE_YT_API_BASE || 'http://localhost:3000',
 
-    // Internal: fetch raw results from your backend for any query string
-    _fetchResults: async function(q) {
-      const cleanBase = this.apiBase.replace(/\/$/, '');
-      const res = await fetch(`${cleanBase}/api/stream?query=${encodeURIComponent(q)}`);
-      if (!res.ok) return [];
-      const data = await res.json();
-      return Array.isArray(data) ? data : [];
-    },
-
-    // Internal: map a raw backend item → unified song object
-    _mapItem: function(item, allItems) {
-      let img = `https://i.ytimg.com/vi/${item.videoId}/hqdefault.jpg`;
-      if (item.thumbnails?.length > 0) {
-        img = item.thumbnails[item.thumbnails.length - 1].url;
-        img = img.replace(/=w\d+-h\d+.*/, '=w500-h500-l90-rj');
-      }
-      return {
-        id: item.videoId,
-        name: item.name || item.title || 'Unknown',
-        primaryArtists: item.artists?.[0]?.name || 'YouTube Artist',
-        image: [{ url: img }],
-        duration: item.duration || 0,
-        source: 'youtube',
-        // Sibling videoIds used as automatic fallbacks when a video is blocked/restricted
-        _ytCandidates: (allItems || []).map(i => i.videoId).filter(id => id !== item.videoId),
-        _ytCandidateIdx: 0,
-      };
-    },
-
-    // Public search: appends "song" to bias toward music; attaches fallback candidates
     search: async function(query) {
       try {
-        const enriched = /song|audio|lyrics/i.test(query) ? query : `${query} song`;
-        const items = await this._fetchResults(enriched);
-        if (!items.length) return [];
-        return items.map(item => this._mapItem(item, items));
+        const cleanBase = this.apiBase.replace(/\/$/, '');
+        const res = await fetch(`${cleanBase}/api/stream?query=${encodeURIComponent(query)}`);
+        if (!res.ok) return [];
+        const data = await res.json();
+        return (Array.isArray(data) ? data : []).map(item => {
+          let img = `https://i.ytimg.com/vi/${item.videoId}/hqdefault.jpg`;
+          if (item.thumbnails?.length > 0) {
+            img = item.thumbnails[item.thumbnails.length - 1].url;
+            img = img.replace(/=w\d+-h\d+.*/, '=w500-h500-l90-rj');
+          }
+          return {
+            id: item.videoId,
+            name: item.name || item.title || 'Unknown',
+            primaryArtists: item.artists?.[0]?.name || 'YouTube Artist',
+            image: [{ url: img }],
+            duration: item.duration || 0,
+            source: 'youtube',
+          };
+        });
       } catch (err) {
         console.error("YouTube Search Failed:", err);
         return [];
       }
     },
 
-    // Returns the next fallback videoId from pre-fetched siblings, or null if exhausted
-    nextCandidate: function(song) {
-      if (!song._ytCandidates?.length) return null;
-      const idx = song._ytCandidateIdx ?? 0;
-      if (idx >= song._ytCandidates.length) return null;
-      song._ytCandidateIdx = idx + 1;
-      return song._ytCandidates[idx];
-    },
-
-    // Last resort: re-search with artist name + "official audio" for a fresh candidate pool
-    retrySearch: async function(song) {
-      try {
-        const q = `${song.name} ${song.primaryArtists !== 'YouTube Artist' ? song.primaryArtists : ''} official audio`.trim();
-        const items = await this._fetchResults(q);
-        if (!items.length) return null;
-        song._ytCandidates = items.map(i => i.videoId);
-        song._ytCandidateIdx = 0;
-        return this.nextCandidate(song);
-      } catch {
-        return null;
-      }
+    // THE REAL FIX: fetch audio stream by videoId directly — no IFrame, no embed restrictions.
+    // Your backend /api/stream?videoId=XXX returns an object with the audio URL.
+    // This is why Jhol/Pal Pal/Kahaani Suno fail: their videoIds block IFrame embedding (error 101/150).
+    // Playing via <audio> bypasses that restriction entirely.
+    getStreamUrl: async function(videoId) {
+      const cleanBase = this.apiBase.replace(/\/$/, '');
+      const res = await fetch(`${cleanBase}/api/stream?videoId=${encodeURIComponent(videoId)}`);
+      if (!res.ok) throw new Error(`Backend returned ${res.status}`);
+      const data = await res.json();
+      const url = data.url || data.streamUrl || data.audioUrl || data.stream_url
+                  || data?.formats?.[0]?.url || data?.data?.url || data?.audio?.[0]?.url;
+      if (!url) throw new Error('No stream URL in backend response for videoId=' + videoId);
+      return url;
     }
   }
 };
@@ -346,61 +323,16 @@ function App() {
   useEffect(() => { setHistory(JSON.parse(localStorage.getItem('musiq_history') || '[]')); }, []);
 
   // --- YOUTUBE IFRAME INITIALIZATION ---
-  // ytErrorRetryRef tracks how many times we've tried fallback for the current song
-  const ytErrorRetryRef = useRef(0);
-
+  // IFrame player kept only to satisfy YouTube API script requirements.
+  // YouTube audio now plays via <audio> using getStreamUrl() — no IFrame embed needed.
   const initYTPlayer = (videoId = '') => {
     if (ytPlayerRef.current && typeof ytPlayerRef.current.destroy === 'function') {
       try { ytPlayerRef.current.destroy(); } catch (e) {}
     }
-
     ytPlayerRef.current = new window.YT.Player('hidden-yt-player', {
-      height: '0', width: '0', videoId: videoId,
-      playerVars: { 'autoplay': 1, 'controls': 0, 'origin': window.location.origin },
-      events: {
-        'onReady': (event) => {
-          setYtReady(true);
-          if (videoId) event.target.playVideo();
-        },
-        'onStateChange': (event) => {
-          if (event.data === window.YT.PlayerState.PLAYING) {
-            clearTimeout(watchdogRef.current);
-            ytErrorRetryRef.current = 0; // reset retry counter on successful play
-            setIsPlaying(true);
-          }
-          if (event.data === window.YT.PlayerState.PAUSED) { setIsPlaying(false); }
-          if (event.data === window.YT.PlayerState.ENDED) { onTrackEndRef.current(); }
-        },
-        // YT error codes: 2=bad videoId, 5=HTML5 error, 100=not found/private,
-        // 101/150=embed not allowed. All mean "try the next candidate".
-        'onError': async (event) => {
-          const errorCode = event.data;
-          console.warn(`YT Player Error ${errorCode} for videoId: ${videoId}`);
-          const song = currentSongRef.current;
-          if (!song || song.source !== 'youtube') return;
-
-          // Try next sibling candidate first (fast, no network call)
-          let nextId = APIs.youtube.nextCandidate(song);
-
-          // If siblings exhausted, do a fresh search with artist name (one retry max)
-          if (!nextId && ytErrorRetryRef.current < 1) {
-            ytErrorRetryRef.current += 1;
-            toast.loading('Finding alternative version…', { id: 'yt-retry', duration: 3000 });
-            nextId = await APIs.youtube.retrySearch(song);
-          }
-
-          if (nextId) {
-            console.log(`YT fallback → trying videoId: ${nextId}`);
-            // Update the current song's id so the player tracks the right video
-            song.id = nextId;
-            initYTPlayer(nextId);
-          } else {
-            ytErrorRetryRef.current = 0;
-            toast.error('This video is unavailable. Try a different result.', { id: 'yt-retry' });
-            setIsPlaying(false);
-          }
-        }
-      }
+      height: '0', width: '0', videoId,
+      playerVars: { 'autoplay': 0, 'controls': 0 },
+      events: { 'onReady': () => setYtReady(true) }
     });
   };
 
@@ -499,28 +431,23 @@ function App() {
     addToHistory(s);
 
     if (s.source === 'youtube') {
-      audioRef.current.pause(); 
-      ytErrorRetryRef.current = 0; // reset fallback counter for new song
-      clearTimeout(watchdogRef.current);
-      watchdogRef.current = setTimeout(() => {
-        // Watchdog: if still not playing after 5s, try next candidate
-        if (!isPlaying) {
-          console.warn("YouTube freeze detected. Trying next candidate...");
-          const nextId = APIs.youtube.nextCandidate(s);
-          if (nextId) { s.id = nextId; initYTPlayer(nextId); }
-          else initYTPlayer(s.id); // last resort: re-init same id
-        }
-      }, 5000);
-
-      if (ytReady && ytPlayerRef.current && typeof ytPlayerRef.current.loadVideoById === 'function') {
-        ytPlayerRef.current.loadVideoById(s.id);
-        ytPlayerRef.current.playVideo();
-      } else { initYTPlayer(s.id); }
-      return; 
-    }
-    
-    if (ytPlayerRef.current && typeof ytPlayerRef.current.pauseVideo === 'function') {
-      ytPlayerRef.current.pauseVideo();
+      // Stream audio directly by videoId — bypasses IFrame embed restriction (errors 101/150).
+      // This is why Jhol, Pal Pal, Kahaani Suno now work: we never use IFrame embedding.
+      const toastId = toast.loading('Loading…', { id: 'yt-load' });
+      try {
+        const streamUrl = await APIs.youtube.getStreamUrl(s.id);
+        toast.dismiss(toastId);
+        audioRef.current.src = streamUrl;
+        audioRef.current.volume = volume;
+        audioRef.current.play()
+          .then(() => setIsPlaying(true))
+          .catch(e => { console.error('YT audio play error:', e); setIsPlaying(false); });
+      } catch (err) {
+        console.error('YT getStreamUrl failed:', err);
+        toast.error('Stream unavailable. Ensure your backend supports ?videoId= param.', { id: 'yt-load', duration: 5000 });
+        setIsPlaying(false);
+      }
+      return;
     }
     
     let url = "";
@@ -565,22 +492,16 @@ function App() {
   };
 
   const togglePlay = () => {
-    if (currentSong?.source === 'youtube') {
-      if (isPlaying) ytPlayerRef.current?.pauseVideo();
-      else ytPlayerRef.current?.playVideo();
-    } else {
-      if (audioRef.current.paused) { audioRef.current.play(); setIsPlaying(true); }
-      else { audioRef.current.pause(); setIsPlaying(false); }
-    }
+    // All sources including YouTube now play through audioRef
+    if (audioRef.current.paused) { audioRef.current.play(); setIsPlaying(true); }
+    else { audioRef.current.pause(); setIsPlaying(false); }
   };
 
   const handleSeek = (e) => {
     const w = e.currentTarget.clientWidth;
     const x = e.nativeEvent.offsetX;
     const seekTo = (x / w) * duration;
-    
-    if (currentSong?.source === 'youtube') { ytPlayerRef.current?.seekTo(seekTo, true); } 
-    else { audioRef.current.currentTime = seekTo; }
+    audioRef.current.currentTime = seekTo;
     setProgress(seekTo);
   };
 
@@ -711,8 +632,7 @@ function App() {
   useEffect(() => {
     onTrackEndRef.current = () => {
       if(repeatMode === 'one') { 
-        if(currentSong?.source === 'youtube') ytPlayerRef.current?.seekTo(0);
-        else { audioRef.current.currentTime = 0; audioRef.current.play(); }
+        audioRef.current.currentTime = 0; audioRef.current.play();
       }
       else if(isShuffle) { playSong(queue, Math.floor(Math.random() * queue.length)); }
       else if(qIndex < queue.length - 1) { playSong(queue, qIndex + 1); }
@@ -746,18 +666,7 @@ function App() {
     return () => { a.removeEventListener('timeupdate', updateTime); a.removeEventListener('ended', handleEnd); };
   }, []);
 
-  useEffect(() => {
-    if (isPlaying && currentSong?.source === 'youtube') {
-      ytProgressInterval.current = setInterval(() => {
-        if (ytPlayerRef.current && typeof ytPlayerRef.current.getCurrentTime === 'function') {
-          const dur = ytPlayerRef.current.getDuration() || 0;
-          setProgress(ytPlayerRef.current.getCurrentTime()); setDuration(dur);
-          setBufferProgress((ytPlayerRef.current.getVideoLoadedFraction() || 0) * dur); 
-        }
-      }, 1000);
-    } else { clearInterval(ytProgressInterval.current); }
-    return () => clearInterval(ytProgressInterval.current);
-  }, [isPlaying, currentSong]);
+  // ytProgressInterval removed — YouTube now uses audioRef, timeupdate handles all progress.
 
   useEffect(() => {
     const handleKey = (e) => {
