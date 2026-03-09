@@ -318,8 +318,10 @@ function App() {
     scope: containerRef 
   });
 
-  const currentSongRef = useRef(null);
-  useEffect(() => { currentSongRef.current = currentSong; }, [currentSong]);
+// --- NEW: Refs for Fallback Logic ---
+  const queueRef = useRef([]);
+  const qIndexRef = useRef(-1);
+  useEffect(() => { queueRef.current = queue; qIndexRef.current = qIndex; }, [queue, qIndex]);
   // Helpers
   const getImg = (i) => { if(Array.isArray(i)) return i[i.length-1]?.url || i[0]?.url; return i || "https://via.placeholder.com/150"; }
   const getName = (i) => i?.name || i?.title || "Unknown";
@@ -348,6 +350,53 @@ function App() {
   // --- YOUTUBE IFRAME INITIALIZATION ---
   // ytErrorRetryRef tracks how many times we've tried fallback for the current song
   const ytErrorRetryRef = useRef(0);
+
+  // --- NEW: AUTO-FALLBACK HANDLER ---
+  const handleAudioError = async () => {
+      const song = currentSongRef.current;
+      // Stop if it's already a YouTube song (to prevent infinite loops) or if no song is loaded
+      if (!song || song.source === 'youtube') return;
+
+      console.warn(`Audio source failed for "${song.name}". Attempting YouTube Fallback...`);
+      const toastId = toast.loading("Source failed. Switching to YouTube audio...");
+
+      try {
+          // 1. Search YouTube for "Song Name Artist Name"
+          const query = `${song.name} ${song.primaryArtists || ''} audio`;
+          // Note: This relies on your existing APIs.youtube.search function
+          const ytResults = await APIs.youtube.search(query);
+
+          if (ytResults.length > 0) {
+              const fallbackSong = ytResults[0];
+              
+              // 2. Create a "Hybrid" Song object
+              // We keep the original high-res image and metadata, but swap the ID and Source to YouTube
+              const hybridSong = {
+                  ...song, // Keep original metadata (Name, Album Art, etc.)
+                  id: fallbackSong.id, // Use YouTube Video ID
+                  source: 'youtube', // Switch player mode
+                  duration: fallbackSong.duration || song.duration
+              };
+
+              // 3. Update Queue and Play
+              const newQueue = [...queueRef.current];
+              const currentIndex = qIndexRef.current;
+              
+              if (currentIndex >= 0 && currentIndex < newQueue.length) {
+                  newQueue[currentIndex] = hybridSong; // Swap the broken song with the hybrid one
+                  setQueue(newQueue);
+                  // Force play the new version
+                  playSong(newQueue, currentIndex);
+                  toast.success("Playing from YouTube", { id: toastId });
+              }
+          } else {
+              toast.error("Playback failed. No alternative found.", { id: toastId });
+          }
+      } catch (e) {
+          console.error("Fallback failed", e);
+          toast.error("Playback error.", { id: toastId });
+      }
+  };
 
   const initYTPlayer = (videoId = '') => {
     if (ytPlayerRef.current && typeof ytPlayerRef.current.destroy === 'function') {
@@ -735,15 +784,24 @@ function App() {
     }
   }, [qIndex, queue, quality]);
 
-  useEffect(() => {
+useEffect(() => {
     const a = audioRef.current;
     const updateTime = () => { 
       setProgress(a.currentTime); setDuration(a.duration || 0); 
       if (a.buffered.length > 0) setBufferProgress(a.buffered.end(a.buffered.length - 1));
     };
     const handleEnd = () => onTrackEndRef.current();
-    a.addEventListener('timeupdate', updateTime); a.addEventListener('ended', handleEnd);
-    return () => { a.removeEventListener('timeupdate', updateTime); a.removeEventListener('ended', handleEnd); };
+    
+    // --- ATTACH LISTENERS ---
+    a.addEventListener('timeupdate', updateTime); 
+    a.addEventListener('ended', handleEnd);
+    a.addEventListener('error', handleAudioError); // <--- NEW LISTENER
+
+    return () => { 
+        a.removeEventListener('timeupdate', updateTime); 
+        a.removeEventListener('ended', handleEnd);
+        a.removeEventListener('error', handleAudioError); // <--- CLEANUP
+    };
   }, []);
 
   useEffect(() => {
