@@ -150,3 +150,50 @@ export const MOODS = [
   { id: 'm5', name: 'Chill', color: '#4db6ac', query: 'Chill Lo-Fi' },
   { id: 'm6', name: 'Retro', color: '#7986cb', query: 'Retro Classics' },
 ];
+
+// ---------- JioSaavn home feed (webapi.getLaunchData) ----------
+// Dev: Vite proxies /saavn-launch to jiosaavn.com (see vite.config.js). Production: set VITE_HOME_API to api/home.js once deployed.
+const HOME_URL = import.meta.env.VITE_HOME_API || (import.meta.env.DEV ? '/saavn-launch' : '');
+const SKIP = new Set(['modules', 'history', 'greeting', 'discover', 'browse_discover']);
+const nice = (k) => (k.startsWith('promo') ? 'Featured' : k.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase()));
+
+const toItem = (x) => {
+  if (!x || typeof x !== 'object' || !x.id || !(x.title || x.name)) return null;
+  const title = x.title || x.name;
+  return {
+    id: String(x.id), type: x.type || 'playlist', name: title, title, subtitle: x.subtitle || x.header_desc || '',
+    image: [{ quality: '500x500', url: String(x.image || '').replace(/\d+x\d+(?=\.\w+$)/, '500x500') }],
+    language: x.language, year: x.year,
+  };
+};
+
+// Turns the raw launch data into [{ id, title, subtitle, position, items }] in JioSaavn's own section order.
+export const normalizeLaunch = (json) => {
+  const raw = json?.data && !json.modules ? json.data : json || {};
+  const meta = raw.modules || {};
+  return Object.entries(raw)
+    .filter(([k, v]) => !SKIP.has(k) && Array.isArray(v) && v.length)
+    .map(([k, v]) => ({ id: k, title: meta[k]?.title || nice(k), subtitle: meta[k]?.subtitle || '', position: meta[k]?.position ?? 99, items: v.map(toItem).filter(Boolean) }))
+    .filter((sec) => sec.items.length)
+    .sort((a, b) => a.position - b.position);
+};
+
+export async function fetchLaunch(langs = ['hindi', 'english']) {
+  if (!HOME_URL) return [];
+  try {
+    const res = await fetch(`${HOME_URL}${HOME_URL.includes('?') ? '&' : '?'}languages=${encodeURIComponent(langs.join(','))}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return normalizeLaunch(await res.json());
+  } catch (e) { console.warn('JioSaavn home feed unavailable, using fallback rows:', e); return []; }
+}
+
+// Home-feed songs carry no stream URL, so look the song up (by id, then by title) to get a playable one.
+export async function resolveSong(it) {
+  try {
+    const r = await fetch(`${API_BASE}/songs?id=${encodeURIComponent(it.id)}`).then((x) => x.json());
+    const d = Array.isArray(r?.data) ? r.data[0] : r?.data?.songs?.[0] || r?.data;
+    if (d?.downloadUrl?.length) return { id: String(d.id), name: d.name, primaryArtists: d.primaryArtists, image: d.image, downloadUrl: d.downloadUrl, duration: d.duration, source: 'saavn' };
+  } catch { /* fall through to search */ }
+  const found = await APIs.saavn.search(`${it.name} ${(it.subtitle || '').split(' - ')[0]}`);
+  return found.find((x) => String(x.id) === it.id) || found[0] || null;
+}
