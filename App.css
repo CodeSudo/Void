@@ -250,3 +250,12 @@ kbd { font: 600 .8rem var(--font); padding: 4px 10px; border-radius: 8px; backgr
   .auth-art { min-height: 220px; }
   .auth-art::after { width: 90%; top: -20%; }
 }
+
+/* ---------- JioSaavn home, crash screen ---------- */
+.yt-host { position: fixed; top: -1000px; left: 0; width: 1px; height: 1px; overflow: hidden; }
+.langs { margin-bottom: 18px; }
+.langs .chip { height: 34px; padding: 0 14px; font-size: .88rem; }
+.shelf-sub { margin: -8px 0 14px; font-size: .88rem; }
+.crash { height: 100%; display: grid; place-content: center; justify-items: start; gap: 14px; padding: 32px; max-width: 560px; margin: auto; }
+.crash h1 { font: 600 1.6rem var(--font-d); letter-spacing: -.03em; }
+.crash p { color: var(--mute); word-break: break-word; }
