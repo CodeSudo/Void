@@ -4,7 +4,7 @@ import toast, { Toaster } from 'react-hot-toast';
 import { auth, db } from './firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 import { doc, setDoc, getDoc, updateDoc, deleteDoc, arrayUnion, arrayRemove, collection, addDoc, onSnapshot, query } from 'firebase/firestore';
-import { API_BASE, APIs, MOODS } from './api';
+import { API_BASE, APIs, MOODS, fetchLaunch, resolveSong } from './api';
 
 // ---------- Icons (one path each, drawn on a 24px grid) ----------
 const PATHS = {
@@ -40,6 +40,8 @@ const Ic = Object.fromEntries(Object.entries(PATHS).map(([k, d]) => [k, ({ s = 2
 const ACC = { rose: '255 93 143', ember: '255 142 66', aurora: '96 224 190', ultra: '139 124 255' };
 const NAV = [['home', 'Home', 'home'], ['search', 'Search', 'search'], ['library', 'Library', 'library'], ['profile', 'Settings', 'user']];
 const SPEEDS = [0.75, 1, 1.25, 1.5, 2];
+const LANGS = ['hindi', 'english', 'punjabi', 'tamil', 'telugu', 'marathi', 'gujarati', 'bengali', 'kannada', 'malayalam', 'bhojpuri', 'haryanvi'];
+const TYPE_LABEL = { song: 'Song', album: 'Album', playlist: 'Playlist', artist: 'Artist', radio_station: 'Radio', mix: 'Mix', channel: 'Channel', show: 'Podcast' };
 const SLEEP = [0, 15, 30, 60];
 const QUALITIES = [['96kbps', 'Low'], ['160kbps', 'Medium'], ['320kbps', 'High'], ['Premium', 'Premium']];
 const SHELVES = [
@@ -191,7 +193,7 @@ function App() {
     }
   }, []);
 
-  const fetchHome = async () => {
+  const fetchHomeFallback = async () => {
     setLoading(true);
     try {
       const results = await Promise.all([
@@ -570,6 +572,8 @@ function App() {
   const searchRef = useRef(null);
   const lastMain = useRef('home');
   const keysRef = useRef(() => {});
+  const [launch, setLaunch] = useState([]);
+  const [langs, setLangs] = useState(() => JSON.parse(localStorage.getItem('void_langs') || '["hindi","english"]'));
 
   const saveRecent = (q) => {
     const r = [q, ...recent.filter((x) => x !== q)].slice(0, 8);
@@ -672,6 +676,28 @@ function App() {
     } catch { toast.error('Couldn’t remove the song'); }
   };
 
+  // JioSaavn home feed: use the live feed, fall back to the old search-based rows if it can't be reached
+  const fetchHome = async (ls = langs) => {
+    setLoading(true);
+    const sections = await fetchLaunch(ls);
+    if (sections.length) { setLaunch(sections); setLoading(false); } else await fetchHomeFallback();
+  };
+  const toggleLang = (l) => {
+    const next = langs.includes(l) ? langs.filter((x) => x !== l) : [...langs, l];
+    if (!next.length) return;
+    setLangs(next); localStorage.setItem('void_langs', JSON.stringify(next)); fetchHome(next);
+  };
+  const openLaunchItem = async (it) => {
+    if (['album', 'playlist', 'artist'].includes(it.type)) return handleCardClick(it, it.type);
+    const tid = toast.loading(`Loading ${getName(it)}…`);
+    try {
+      // Radio stations, mixes and shows have no feed endpoint in this API, so they play a search on their title
+      const list = it.type === 'song' ? [await resolveSong(it)].filter(Boolean) : await APIs.saavn.search(it.name);
+      toast.dismiss(tid);
+      if (list.length) playSong(list, 0); else toast.error('Nothing playable found for this one');
+    } catch { toast.error('Couldn’t load this one', { id: tid }); }
+  };
+
   // Keyboard: / search, arrows seek, n/p skip, m mute, Esc closes Now Playing
   keysRef.current = (e) => {
     if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName) || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -717,7 +743,8 @@ function App() {
   const bpct = Math.max(pct, duration ? (bufferProgress / duration) * 100 : 0);
   const hr = new Date().getHours();
   const greet = hr < 5 ? 'Good night' : hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening';
-  const feat = homeData.trending[0];
+  const launchHero = launch.find((x) => /trending/i.test(x.title))?.items.find((i) => i.type === 'song') || launch[0]?.items[0];
+  const feat = launchHero || homeData.trending[0];
   const isCustom = !!selectedItem && userPlaylists.some((p) => p.id === selectedItem.id);
   const noResults = !loading && searched && !resSongs.length && !resAlbums.length && !resArtists.length && !resPlaylists.length;
   const navTab = ['details', 'mood'].includes(tab) ? lastMain.current : tab;
@@ -736,6 +763,20 @@ function App() {
 
   const shelf = (title, items, type) => items?.length > 0 && (
     <section className="shelf" key={title}><h2>{title}</h2><div className="scroller">{items.map((it) => card(it, type))}</div></section>
+  );
+
+  const launchCard = (it, i) => (
+    <article key={`${it.id}-${i}`} className={`card${it.type === 'artist' ? ' artist' : ''}`} tabIndex={0}
+      onClick={() => openLaunchItem(it)} onKeyDown={(e) => e.key === 'Enter' && openLaunchItem(it)}>
+      <div className={`cover${it.type === 'artist' ? ' round' : ''}`}><img src={getImg(it.image)} alt="" loading="lazy" /></div>
+      <h3>{getName(it)}</h3><p>{decode(it.subtitle) || TYPE_LABEL[it.type] || ''}</p>
+    </article>
+  );
+  const launchShelf = (sec) => (
+    <section className="shelf" key={sec.id}>
+      <h2>{decode(sec.title)}</h2>{sec.subtitle && <p className="sub shelf-sub">{decode(sec.subtitle)}</p>}
+      <div className="scroller">{sec.items.map(launchCard)}</div>
+    </section>
   );
 
   const row = (s, i, list, o = {}) => {
@@ -784,7 +825,7 @@ function App() {
     <div className="shell" style={{ '--ar': ACC[accent], '--glow': glow || ACC[accent] }}>
       <Toaster position="top-center" toastOptions={TOAST} />
       <div key={glow || 'default'} className="aura" />
-      <div id="hidden-yt-player" style={{ position: 'absolute', top: '-1000px', width: '1px', height: '1px' }} />
+      <div className="yt-host" aria-hidden="true"><div id="hidden-yt-player" /></div>
 
       {/* Rail (desktop) */}
       <nav className="rail" aria-label="Main">
@@ -809,14 +850,17 @@ function App() {
           {/* HOME */}
           {tab === 'home' && (<>
             <h1 className="h1">{greet}</h1>
+            <div className="chips langs" role="group" aria-label="Music languages">
+              {LANGS.map((l) => <button key={l} aria-pressed={langs.includes(l)} className={`chip${langs.includes(l) ? ' on' : ''}`} onClick={() => toggleLang(l)}>{l[0].toUpperCase() + l.slice(1)}</button>)}
+            </div>
             {feat ? (
               <section className="feat">
                 <img src={getImg(feat.image)} alt="" />
                 <div>
                   <h2>{getName(feat)}</h2><p>{getDesc(feat)}</p>
                   <div className="acts">
-                    <button className="btn pri" onClick={() => playSong(homeData.trending, 0)}><Ic.play s={18} />Play trending</button>
-                    <button className="btn" onClick={() => addToQueue(feat)}><Ic.queue s={18} />Add to queue</button>
+                    <button className="btn pri" onClick={() => (launchHero ? openLaunchItem(launchHero) : playSong(homeData.trending, 0))}><Ic.play s={18} />{launchHero ? (launchHero.type === 'song' ? 'Play' : 'Open') : 'Play trending'}</button>
+                    {!launchHero && <button className="btn" onClick={() => addToQueue(feat)}><Ic.queue s={18} />Add to queue</button>}
                   </div>
                 </div>
               </section>
@@ -834,6 +878,7 @@ function App() {
               <div className="chips">{MOODS.map((m) => <button key={m.id} className="chip" style={{ '--c': m.color }} onClick={() => handleCardClick(m, 'mood')}><i />{m.name}</button>)}</div>
             </section>
 
+            {launch.length > 0 ? launch.map(launchShelf) : (<>
             {homeData.trending.length > 0 && (
               <section className="shelf"><h2>Trending now</h2>
                 <div className="rows">{homeData.trending.slice(0, 10).map((s, i) => row(s, i, homeData.trending))}</div>
@@ -842,6 +887,7 @@ function App() {
 
             {loading && !homeData.charts.length && <section className="shelf"><h2>Top charts</h2>{skeleton()}</section>}
             {SHELVES.map(([t, k, ty]) => shelf(t, homeData[k], ty))}
+            </>)}
           </>)}
 
           {/* SEARCH */}
@@ -1059,4 +1105,20 @@ function App() {
   );
 }
 
-export default App;
+class ErrorBoundary extends React.Component {
+  state = { err: null };
+  static getDerivedStateFromError(err) { return { err }; }
+  componentDidCatch(err, info) { console.error('Void crashed:', err, info?.componentStack); }
+  render() {
+    if (!this.state.err) return this.props.children;
+    return (
+      <div className="crash">
+        <h1>Something broke</h1>
+        <p>{String(this.state.err?.message || this.state.err)}</p>
+        <button className="btn pri" onClick={() => window.location.reload()}>Reload</button>
+      </div>
+    );
+  }
+}
+
+export default function Root() { return <ErrorBoundary><App /></ErrorBoundary>; }
