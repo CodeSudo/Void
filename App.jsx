@@ -4,7 +4,7 @@ import toast, { Toaster } from 'react-hot-toast';
 import { auth, db } from './firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 import { doc, setDoc, getDoc, updateDoc, deleteDoc, arrayUnion, arrayRemove, collection, addDoc, onSnapshot, query } from 'firebase/firestore';
-import { API_BASE, APIs, MOODS, fetchLaunch, resolveSong } from './api';
+import { API_BASE, APIs, MOODS, fetchLaunch, fetchJson, resolveSong } from './api';
 import { Ic } from './icons';
 import Backdrop from './Backdrop';
 import Modal from './Modal';
@@ -179,16 +179,16 @@ function App() {
     setLoading(true);
     try {
       const results = await Promise.all([
-        fetch(`${API_BASE}/search/songs?query=Top 50&limit=15`).then(r=>r.json()).catch(()=>({})),
-        fetch(`${API_BASE}/search/playlists?query=Top Charts&limit=15`).then(r=>r.json()).catch(()=>({})),
-        fetch(`${API_BASE}/search/albums?query=New&limit=15`).then(r=>r.json()).catch(()=>({})),
-        fetch(`${API_BASE}/search/playlists?query=Editors Pick&limit=15`).then(r=>r.json()).catch(()=>({})),
-        fetch(`${API_BASE}/search/artists?query=Best&limit=15`).then(r=>r.json()).catch(()=>({})), 
-        fetch(`${API_BASE}/search/artists?query=Top Artists&limit=15`).then(r=>r.json()).catch(()=>({})),
-        fetch(`${API_BASE}/search/playlists?query=Love&limit=15`).then(r=>r.json()).catch(()=>({})),
-        fetch(`${API_BASE}/search/playlists?query=Fresh Hits&limit=15`).then(r=>r.json()).catch(()=>({})),
-        fetch(`${API_BASE}/search/playlists?query=90s Bollywood&limit=15`).then(r=>r.json()).catch(()=>({})),
-        fetch(`${API_BASE}/search/albums?query=New Hindi Pop&limit=15`).then(r=>r.json()).catch(()=>({}))
+        fetchJson(`${API_BASE}/search/songs?query=Top 50&limit=15`),
+        fetchJson(`${API_BASE}/search/playlists?query=Top Charts&limit=15`),
+        fetchJson(`${API_BASE}/search/albums?query=New&limit=15`),
+        fetchJson(`${API_BASE}/search/playlists?query=Editors Pick&limit=15`),
+        fetchJson(`${API_BASE}/search/artists?query=Best&limit=15`), 
+        fetchJson(`${API_BASE}/search/artists?query=Top Artists&limit=15`),
+        fetchJson(`${API_BASE}/search/playlists?query=Love&limit=15`),
+        fetchJson(`${API_BASE}/search/playlists?query=Fresh Hits&limit=15`),
+        fetchJson(`${API_BASE}/search/playlists?query=90s Bollywood&limit=15`),
+        fetchJson(`${API_BASE}/search/albums?query=New Hindi Pop&limit=15`)
       ]);
 
       setHomeData({ 
@@ -556,6 +556,7 @@ function App() {
   const keysRef = useRef(() => {});
   const [launch, setLaunch] = useState([]);
   const [launchErr, setLaunchErr] = useState('');
+  const [launchBusy, setLaunchBusy] = useState(false);
   const [langs, setLangs] = useState(() => JSON.parse(localStorage.getItem('void_langs') || '["hindi","english"]'));
 
   const saveRecent = (q) => {
@@ -698,10 +699,16 @@ function App() {
 
   // JioSaavn home feed: use the live feed, fall back to the old search-based rows if it can't be reached
   const fetchHome = async (ls = langs) => {
-    setLoading(true);
-    const { sections, error } = await fetchLaunch(ls);
-    setLaunchErr(error || '');
-    if (sections.length) { setLaunch(sections); setLoading(false); } else await fetchHomeFallback();
+    setLaunchBusy(true); setLaunchErr('');
+    // The built-in rows load in parallel, so Home never sits waiting on the live feed
+    if (!homeData.trending.length && !homeData.charts.length) fetchHomeFallback();
+    try {
+      const res = await fetchLaunch(ls);
+      const sections = Array.isArray(res) ? res : res?.sections || [];
+      if (sections.length) setLaunch(sections);
+      else { setLaunch([]); setLaunchErr(res?.error || 'The feed came back empty.'); }
+    } catch (e) { setLaunch([]); setLaunchErr(String(e?.message || e)); }
+    finally { setLaunchBusy(false); }
   };
   const toggleLang = (l) => {
     const next = langs.includes(l) ? langs.filter((x) => x !== l) : [...langs, l];
@@ -862,6 +869,7 @@ function App() {
             <div className="chips langs" role="group" aria-label="Music languages">
               {LANGS.map((l) => <button key={l} aria-pressed={langs.includes(l)} className={`chip${langs.includes(l) ? ' on' : ''}`} onClick={() => toggleLang(l)}>{l[0].toUpperCase() + l.slice(1)}</button>)}
             </div>
+            {launchBusy && !launch.length && !launchErr && <p className="status sub" role="status"><span className="spin" aria-hidden="true" />Loading JioSaavn’s home feed…</p>}
             {launchErr && !launch.length && (
               <div className="notice" role="status">
                 <p><b>JioSaavn’s live home feed didn’t load.</b> {launchErr} Showing the built-in rows instead.</p>
