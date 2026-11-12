@@ -178,13 +178,24 @@ export const normalizeLaunch = (json) => {
     .sort((a, b) => a.position - b.position);
 };
 
+// Returns { sections, error }. `error` is a short, readable reason whenever the live feed couldn't be used.
 export async function fetchLaunch(langs = ['hindi', 'english']) {
-  if (!HOME_URL) return [];
+  if (!HOME_URL) return { sections: [], error: 'VITE_HOME_API isn’t set in this build. Vite bakes it in at build time, so restart the dev server or redeploy after adding it.' };
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 7000);
   try {
-    const res = await fetch(`${HOME_URL}${HOME_URL.includes('?') ? '&' : '?'}languages=${encodeURIComponent(langs.join(','))}`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return normalizeLaunch(await res.json());
-  } catch (e) { console.warn('JioSaavn home feed unavailable, using fallback rows:', e); return []; }
+    const res = await fetch(`${HOME_URL}${HOME_URL.includes('?') ? '&' : '?'}languages=${encodeURIComponent(langs.join(','))}`, { signal: ctrl.signal });
+    const body = await res.json().catch(() => null);
+    if (!res.ok || !body) {
+      const hint = res.status === 401 || res.status === 403 ? ' Vercel deployment protection may be blocking it.' : res.status === 404 ? ' The URL should end in /api/home.' : '';
+      return { sections: [], error: body?.error || `The proxy answered HTTP ${res.status}${body ? '' : ' without JSON'}.${hint}` };
+    }
+    const sections = normalizeLaunch(body);
+    const keys = Object.keys(body?.data || body).slice(0, 8).join(', ') || 'none';
+    return { sections, error: sections.length ? '' : `The feed loaded but had no sections I recognise (keys: ${keys}).` };
+  } catch (e) {
+    return { sections: [], error: e.name === 'AbortError' ? 'The proxy took too long to answer.' : `Couldn’t reach the proxy (${e.message}).` };
+  } finally { clearTimeout(timer); }
 }
 
 // Home-feed songs carry no stream URL, so look the song up (by id, then by title) to get a playable one.
@@ -197,3 +208,6 @@ export async function resolveSong(it) {
   const found = await APIs.saavn.search(`${it.name} ${(it.subtitle || '').split(' - ')[0]}`);
   return found.find((x) => String(x.id) === it.id) || found[0] || null;
 }
+
+// fetch + parse JSON, resolving to {} on any failure or after `ms`, so one slow endpoint can never stall a screen.
+export const fetchJson = (url, ms = 8000) => fetch(url, { signal: AbortSignal.timeout(ms) }).then((r) => r.json()).catch(() => ({}));
