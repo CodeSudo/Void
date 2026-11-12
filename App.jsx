@@ -5,36 +5,10 @@ import { auth, db } from './firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 import { doc, setDoc, getDoc, updateDoc, deleteDoc, arrayUnion, arrayRemove, collection, addDoc, onSnapshot, query } from 'firebase/firestore';
 import { API_BASE, APIs, MOODS, fetchLaunch, resolveSong } from './api';
-
-// ---------- Icons (one path each, drawn on a 24px grid) ----------
-const PATHS = {
-  home: 'M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z',
-  search: 'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zm10 17-5-5',
-  library: 'M4 4v16M9 4v16M14 5l5 15',
-  user: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8z',
-  play: 'M6 4l14 8-14 8z',
-  pause: 'M7 4h3v16H7zM14 4h3v16h-3z',
-  next: 'M5 4l10 8-10 8zM19 5v14',
-  prev: 'M19 4 9 12l10 8zM5 5v14',
-  shuffle: 'M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5',
-  repeat: 'M17 2l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 22l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3',
-  heart: 'M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1 1.1L12 21l7.8-7.5 1-1.1a5.5 5.5 0 0 0 0-7.8z',
-  plus: 'M12 5v14M5 12h14',
-  queue: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',
-  mic: 'M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3zM19 10v2a7 7 0 0 1-14 0v-2M12 19v3',
-  down: 'M6 9l6 6 6-6',
-  volume: 'M11 5 6 9H2v6h4l5 4zM15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14',
-  moon: 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z',
-  x: 'M18 6 6 18M6 6l12 12',
-  trash: 'M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14',
-  back: 'M19 12H5M12 5l-7 7 7 7',
-  expand: 'M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7',
-};
-const FILLED = new Set(['play', 'pause', 'next', 'prev']);
-const Ic = Object.fromEntries(Object.entries(PATHS).map(([k, d]) => [k, ({ s = 22, fill, ...rest }) => (
-  <svg width={s} height={s} viewBox="0 0 24 24" fill={fill || FILLED.has(k) ? 'currentColor' : 'none'} stroke="currentColor"
-    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...rest}><path d={d} /></svg>
-)]));
+import { Ic } from './icons';
+import Backdrop from './Backdrop';
+import Modal from './Modal';
+import { AuthScreen, SignedOutScreen } from './Auth';
 
 // ---------- Constants ----------
 const ACC = { rose: '255 93 143', ember: '255 142 66', aurora: '96 224 190', ultra: '139 124 255' };
@@ -50,6 +24,14 @@ const SHELVES = [
   ['New Hindi pop', 'hindiPop', 'album'], ['Artist radio', 'radio', 'artist'],
 ];
 const TOAST = { style: { background: '#1a1a28', color: '#f3f1f8', border: '1px solid rgba(255,255,255,.08)', borderRadius: '14px' } };
+const AUTH_ERRORS = {
+  'auth/invalid-credential': 'That email and password don’t match.', 'auth/invalid-login-credentials': 'That email and password don’t match.',
+  'auth/user-not-found': 'That email and password don’t match.', 'auth/wrong-password': 'That email and password don’t match.',
+  'auth/email-already-in-use': 'An account with this email already exists. Try logging in instead.',
+  'auth/weak-password': 'Choose a password with at least 6 characters.', 'auth/invalid-email': 'That doesn’t look like a valid email address.',
+  'auth/too-many-requests': 'Too many attempts. Wait a few minutes and try again.', 'auth/user-disabled': 'This account has been disabled.',
+  'auth/network-request-failed': 'Couldn’t reach the server. Check your connection and try again.',
+};
 const FALLBACK = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="#1a1a28"/><circle cx="5" cy="5" r="2" fill="#2c2c44"/></svg>');
 
 // ---------- Helpers ----------
@@ -459,10 +441,10 @@ function App() {
                 }
                 else await setDoc(doc(db, "users", u.uid), { email: u.email, likedSongs: [], history: [] });
                 const q = query(collection(db, `users/${u.uid}/playlists`));
-                onSnapshot(q, (snapshot) => setUserPlaylists(snapshot.docs.map(d => ({id: d.id, ...d.data()}))));
+                plUnsub.current?.(); plUnsub.current = onSnapshot(q, (snapshot) => setUserPlaylists(snapshot.docs.map(d => ({id: d.id, ...d.data()}))));
             } catch {}
         } else { 
-            setUser(null); setView('auth'); 
+            setUser(null); plUnsub.current?.(); setLikedSongs([]); setUserPlaylists([]); setView(signingOut.current ? 'signedout' : 'auth'); signingOut.current = false; 
             setHistory(JSON.parse(localStorage.getItem('musiq_history') || '[]'));
         }
     });
@@ -534,7 +516,7 @@ function App() {
 
   useEffect(() => {
     const handleKey = (e) => {
-        if(e.target.tagName==='INPUT') return;
+        if(['INPUT','SELECT','TEXTAREA','BUTTON','A'].includes(e.target.tagName) || e.target.isContentEditable) return;
         if(e.code==='Space') { e.preventDefault(); togglePlay(); }
     };
     window.addEventListener('keydown', handleKey);
@@ -573,6 +555,7 @@ function App() {
   const lastMain = useRef('home');
   const keysRef = useRef(() => {});
   const [launch, setLaunch] = useState([]);
+  const [launchErr, setLaunchErr] = useState('');
   const [langs, setLangs] = useState(() => JSON.parse(localStorage.getItem('void_langs') || '["hindi","english"]'));
 
   const saveRecent = (q) => {
@@ -676,10 +659,48 @@ function App() {
     } catch { toast.error('Couldn’t remove the song'); }
   };
 
+  // ───────── Auth, sign-out and player status ─────────
+  const [confirmOut, setConfirmOut] = useState(false);
+  const [buffering, setBuffering] = useState(false);
+  const [playError, setPlayError] = useState(false);
+  const signingOut = useRef(false);
+  const plUnsub = useRef(null);
+
+  // Resolves to an error message, or null on success (onAuthStateChanged then switches the view)
+  const submitAuth = async (mode, email, password) => {
+    try {
+      if (mode === 'signup') {
+        const c = await createUserWithEmailAndPassword(auth, email, password);
+        await setDoc(doc(db, 'users', c.user.uid), { email, likedSongs: [] });
+      } else await signInWithEmailAndPassword(auth, email, password);
+      return null;
+    } catch (e) { return AUTH_ERRORS[e.code] || 'Something went wrong. Please try again.'; }
+  };
+
+  // Stop everything first, then sign out; the auth listener sends us to the signed-out page
+  const doSignOut = async () => {
+    setConfirmOut(false);
+    try { audioRef.current.pause(); ytPlayerRef.current?.pauseVideo?.(); } catch { /* player not ready */ }
+    if ('mediaSession' in navigator) navigator.mediaSession.metadata = null;
+    setIsPlaying(false); setCurrentSong(null); setQueue([]); setTheaterMode(false); setSleepMin(0); setProgress(0); setDuration(0);
+    signingOut.current = true;
+    try { await signOut(auth); } catch { signingOut.current = false; toast.error('Couldn’t sign out. Try again.'); }
+  };
+
+  useEffect(() => {
+    const a = audioRef.current;
+    const wait = () => setBuffering(true), ready = () => setBuffering(false);
+    const fail = () => { if (!a.getAttribute('src')) return; setBuffering(false); setPlayError(true); setIsPlaying(false); };
+    a.addEventListener('waiting', wait); a.addEventListener('playing', ready); a.addEventListener('canplay', ready); a.addEventListener('error', fail);
+    return () => { a.removeEventListener('waiting', wait); a.removeEventListener('playing', ready); a.removeEventListener('canplay', ready); a.removeEventListener('error', fail); };
+  }, []);
+  useEffect(() => { setPlayError(false); setBuffering(false); }, [currentSong?.id]);
+
   // JioSaavn home feed: use the live feed, fall back to the old search-based rows if it can't be reached
   const fetchHome = async (ls = langs) => {
     setLoading(true);
-    const sections = await fetchLaunch(ls);
+    const { sections, error } = await fetchLaunch(ls);
+    setLaunchErr(error || '');
     if (sections.length) { setLaunch(sections); setLoading(false); } else await fetchHomeFallback();
   };
   const toggleLang = (l) => {
@@ -717,26 +738,8 @@ function App() {
 
   if (view === 'loading') return <div className="splash"><span>void</span></div>;
 
-  if (view === 'auth') return (
-    <div className="auth">
-      <Toaster toastOptions={TOAST} />
-      <section className="auth-art">
-        <div className="mark">void</div>
-        <p>Every source, one queue. Search JioSaavn, Apple Music, SoundCloud, Qobuz and YouTube from a single place.</p>
-      </section>
-      <section className="auth-form">
-        <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }}>
-          <h1>{authMode === 'login' ? 'Sign in to Void' : 'Create your account'}</h1>
-          <label>Email<input type="email" autoComplete="email" required value={authInput.email} onChange={(e) => setAuthInput({ ...authInput, email: e.target.value })} /></label>
-          <label>Password<input type="password" autoComplete={authMode === 'login' ? 'current-password' : 'new-password'} required minLength={6} value={authInput.password} onChange={(e) => setAuthInput({ ...authInput, password: e.target.value })} /></label>
-          <button className="btn pri" type="submit">{authMode === 'login' ? 'Sign in' : 'Create account'}</button>
-          <button type="button" className="link" onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')}>
-            {authMode === 'login' ? 'New here? Create an account' : 'Have an account? Sign in'}
-          </button>
-        </form>
-      </section>
-    </div>
-  );
+  if (view === 'auth') return <AuthScreen mode={authMode} setMode={setAuthMode} onSubmit={submitAuth} color={ACC.rose} />;
+  if (view === 'signedout') return <SignedOutScreen color={ACC.rose} onLogin={() => { setAuthMode('login'); setView('auth'); }} onSignup={() => { setAuthMode('signup'); setView('auth'); }} />;
 
   // ---------- derived values ----------
   const pct = duration ? (progress / duration) * 100 : 0;
@@ -749,6 +752,7 @@ function App() {
   const noResults = !loading && searched && !resSongs.length && !resAlbums.length && !resArtists.length && !resPlaylists.length;
   const navTab = ['details', 'mood'].includes(tab) ? lastMain.current : tab;
   const liveLiked = currentSong && isLiked(currentSong.id);
+  const busy = buffering && isPlaying && !playError;
 
   // ---------- render helpers ----------
   const skeleton = (n = 6) => <div className="scroller">{Array.from({ length: n }, (_, i) => <div key={i} className="card"><div className="cover sk" /><div className="sk-line sk" /></div>)}</div>;
@@ -804,7 +808,7 @@ function App() {
     <div className="ctl">
       <button className={isShuffle ? 'on' : ''} aria-label="Shuffle" aria-pressed={isShuffle} onClick={toggleShuffle}><Ic.shuffle s={19} /></button>
       <button aria-label="Previous" onClick={() => playSong(queue, qIndex - 1)}><Ic.prev s={20} /></button>
-      <button className="play" aria-label={isPlaying ? 'Pause' : 'Play'} onClick={togglePlay}>{isPlaying ? <Ic.pause s={22} /> : <Ic.play s={22} />}</button>
+      <button className={`play${busy ? ' busy' : ''}`} aria-busy={busy} aria-label={isPlaying ? 'Pause' : 'Play'} onClick={togglePlay}>{isPlaying ? <Ic.pause s={22} /> : <Ic.play s={22} />}</button>
       <button aria-label="Next" onClick={() => playSong(queue, qIndex + 1)}><Ic.next s={20} /></button>
       <button className={repeatMode !== 'none' ? 'on' : ''} aria-label={`Repeat: ${repeatMode}`} onClick={toggleRepeat}><Ic.repeat s={19} />{repeatMode === 'one' && <sup>1</sup>}</button>
     </div>
@@ -824,7 +828,10 @@ function App() {
   return (
     <div className="shell" style={{ '--ar': ACC[accent], '--glow': glow || ACC[accent] }}>
       <Toaster position="top-center" toastOptions={TOAST} />
+      <a className="skip" href="#main">Skip to content</a>
+      <p className="sr" aria-live="polite">{currentSong ? `${isPlaying ? 'Now playing' : 'Paused'}: ${getName(currentSong)}` : ''}</p>
       <div key={glow || 'default'} className="aura" />
+      <Backdrop color={glow || ACC[accent]} playing={isPlaying} focus={theaterMode} />
       <div className="yt-host" aria-hidden="true"><div id="hidden-yt-player" /></div>
 
       {/* Rail (desktop) */}
@@ -833,9 +840,11 @@ function App() {
         {NAV.map(([k, label, ic]) => { const I = Ic[ic]; return (
           <button key={k} className={navTab === k ? 'on' : ''} aria-current={navTab === k ? 'page' : undefined} onClick={() => setTab(k)}><I /><span>{label}</span></button>
         ); })}
+        <div className="grow" />
+        <button onClick={() => setConfirmOut(true)}><Ic.logout /><span>Sign out</span></button>
       </nav>
 
-      <main className="main" ref={containerRef}>
+      <main className="main" id="main" tabIndex={-1} ref={containerRef}>
         <header className="top">
           <div className="m-logo">void</div>
           <label className="search">
@@ -846,13 +855,19 @@ function App() {
           </label>
         </header>
 
-        <div className="page">
+        <div className="page" key={`${tab}-${tab === 'details' ? selectedItem?.id : tab === 'library' ? libTab : ''}`}>
           {/* HOME */}
           {tab === 'home' && (<>
             <h1 className="h1">{greet}</h1>
             <div className="chips langs" role="group" aria-label="Music languages">
               {LANGS.map((l) => <button key={l} aria-pressed={langs.includes(l)} className={`chip${langs.includes(l) ? ' on' : ''}`} onClick={() => toggleLang(l)}>{l[0].toUpperCase() + l.slice(1)}</button>)}
             </div>
+            {launchErr && !launch.length && (
+              <div className="notice" role="status">
+                <p><b>JioSaavn’s live home feed didn’t load.</b> {launchErr} Showing the built-in rows instead.</p>
+                <button className="btn" onClick={() => fetchHome()}>Try again</button>
+              </div>
+            )}
             {feat ? (
               <section className="feat">
                 <img src={getImg(feat.image)} alt="" />
@@ -887,6 +902,7 @@ function App() {
 
             {loading && !homeData.charts.length && <section className="shelf"><h2>Top charts</h2>{skeleton()}</section>}
             {SHELVES.map(([t, k, ty]) => shelf(t, homeData[k], ty))}
+            {!loading && !homeData.trending.length && !homeData.charts.length && <p className="empty">The music API didn’t return anything either. Check that it’s reachable, then try again.</p>}
             </>)}
           </>)}
 
@@ -996,7 +1012,7 @@ function App() {
                 <div className="set-row"><span>Mute</span><kbd>M</kbd></div>
                 <div className="set-row"><span>Focus search</span><kbd>/</kbd></div>
               </section>
-              <button className="btn danger" onClick={() => signOut(auth)}>Sign out</button>
+              <button className="btn danger" onClick={() => setConfirmOut(true)}><Ic.logout s={18} />Sign out</button>
             </div>
           )}
         </div>
@@ -1008,7 +1024,7 @@ function App() {
           <i className="dock-line" style={{ width: `${pct}%` }} />
           <button className="dock-track" onClick={() => setTheaterMode(true)} aria-label="Open now playing">
             <img src={getImg(currentSong.image)} alt="" />
-            <span className="meta"><b>{getName(currentSong)}</b><small>{getDesc(currentSong)}</small></span>
+            <span className="meta"><b>{getName(currentSong)}</b><small className={playError ? 'err' : ''}>{playError ? 'Couldn’t play this track' : getDesc(currentSong)}</small></span>
           </button>
           <div className="dock-center">{ctl}{scrub}</div>
           <div className="dock-right">
@@ -1021,7 +1037,7 @@ function App() {
             <button aria-label="Open now playing" onClick={() => setTheaterMode(true)}><Ic.expand s={19} /></button>
           </div>
           <div className="dock-m ctl">
-            <button className="play" aria-label={isPlaying ? 'Pause' : 'Play'} onClick={togglePlay}>{isPlaying ? <Ic.pause s={22} /> : <Ic.play s={22} />}</button>
+            <button className={`play${busy ? ' busy' : ''}`} aria-busy={busy} aria-label={isPlaying ? 'Pause' : 'Play'} onClick={togglePlay}>{isPlaying ? <Ic.pause s={22} /> : <Ic.play s={22} />}</button>
             <button aria-label="Next" onClick={() => playSong(queue, qIndex + 1)}><Ic.next s={20} /></button>
           </div>
         </div>
@@ -1037,6 +1053,7 @@ function App() {
               <img className="sleeve-art" src={getImg(currentSong.image)} alt="" />
             </div>
             <div className="np-title"><h2>{getName(currentSong)}</h2><p>{getDesc(currentSong)}</p></div>
+            {playError && <p className="np-err" role="alert"><Ic.alert s={16} />This track couldn’t be played. <button onClick={() => playSong(queue, qIndex + 1)}>Skip to next</button></p>}
             {scrub}
             <div className="big">{ctl}</div>
             <div className="np-tools">
@@ -1055,14 +1072,14 @@ function App() {
             </div>
             <div className="panel-body">
               {panel === 'lyrics' ? <div className="lyrics">{lyricsText || 'Loading lyrics…'}</div>
-                : queue.map((s, i) => (
+                : <>{queue.length < 2 && <p className="empty">Nothing else is queued. Use the queue button on any song to add it.</p>}{queue.map((s, i) => (
                   <div key={`${s.id}-${i}`} className={`row q${i === qIndex ? ' on' : ''}`}>
                     <button className="row-main" onClick={() => playSong(queue, i)}>
                       <img src={getImg(s.image)} alt="" /><span className="meta"><b>{getName(s)}</b><small>{getDesc(s)}</small></span>
                     </button>
                     <div className="row-acts"><button aria-label="Remove from queue" onClick={() => removeFromQueue(i)}><Ic.x s={16} /></button></div>
                   </div>
-                ))}
+                ))}</>}
             </div>
           </aside>
         </>)}
@@ -1075,31 +1092,34 @@ function App() {
         ); })}
       </nav>
 
-      {/* Modals */}
+      {/* Dialogs */}
       {showPlaylistModal && (
-        <div className="modal" onClick={() => setShowPlaylistModal(false)}>
-          <form className="modal-box" onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); createPlaylist(); }}>
-            <h2>New playlist</h2>
-            <input autoFocus aria-label="Playlist name" placeholder="Give it a name" value={newPlaylistName} onChange={(e) => setNewPlaylistName(e.target.value)} />
-            <div className="acts"><button type="button" className="btn" onClick={() => setShowPlaylistModal(false)}>Cancel</button><button type="submit" className="btn pri">Create playlist</button></div>
-          </form>
-        </div>
+        <Modal as="form" titleId="modal-new-h" onClose={() => setShowPlaylistModal(false)} onSubmit={(e) => { e.preventDefault(); createPlaylist(); }}>
+          <h2 id="modal-new-h">New playlist</h2>
+          <input data-autofocus aria-label="Playlist name" placeholder="Give it a name" value={newPlaylistName} onChange={(e) => setNewPlaylistName(e.target.value)} />
+          <div className="acts"><button type="button" className="btn" onClick={() => setShowPlaylistModal(false)}>Cancel</button><button type="submit" className="btn pri" disabled={!newPlaylistName.trim()}>Create playlist</button></div>
+        </Modal>
       )}
       {showAddToPlaylistModal && (
-        <div className="modal" onClick={() => setShowAddToPlaylistModal(false)}>
-          <div className="modal-box" onClick={(e) => e.stopPropagation()}>
-            <h2>Add to playlist</h2>
-            {userPlaylists.length ? (
-              <div className="pick">{userPlaylists.map((pl) => (
-                <button key={pl.id} onClick={() => addToPlaylist(pl.id)}><span className="pick-ic"><Ic.library s={18} /></span>{pl.name}</button>
-              ))}</div>
-            ) : <p className="empty">You don’t have any playlists yet.</p>}
-            <div className="acts">
-              <button className="btn" onClick={() => setShowAddToPlaylistModal(false)}>Cancel</button>
-              <button className="btn pri" onClick={() => { setShowAddToPlaylistModal(false); setShowPlaylistModal(true); }}><Ic.plus s={18} />New playlist</button>
-            </div>
+        <Modal titleId="modal-add-h" onClose={() => setShowAddToPlaylistModal(false)}>
+          <h2 id="modal-add-h">Add to playlist</h2>
+          {userPlaylists.length ? (
+            <div className="pick">{userPlaylists.map((pl) => (
+              <button key={pl.id} onClick={() => addToPlaylist(pl.id)}><span className="pick-ic"><Ic.library s={18} /></span>{pl.name}</button>
+            ))}</div>
+          ) : <p className="empty">You don’t have any playlists yet.</p>}
+          <div className="acts">
+            <button className="btn" onClick={() => setShowAddToPlaylistModal(false)}>Cancel</button>
+            <button className="btn pri" onClick={() => { setShowAddToPlaylistModal(false); setShowPlaylistModal(true); }}><Ic.plus s={18} />New playlist</button>
           </div>
-        </div>
+        </Modal>
+      )}
+      {confirmOut && (
+        <Modal titleId="modal-out-h" onClose={() => setConfirmOut(false)}>
+          <h2 id="modal-out-h">Sign out of Void?</h2>
+          <p className="sub">Your music will stop. Your likes, playlists and history stay saved to your account.</p>
+          <div className="acts"><button className="btn" data-autofocus onClick={() => setConfirmOut(false)}>Stay signed in</button><button className="btn danger" onClick={doSignOut}><Ic.logout s={18} />Sign out</button></div>
+        </Modal>
       )}
     </div>
   );
