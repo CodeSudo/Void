@@ -323,3 +323,6 @@ kbd { font: 600 .8rem var(--font); padding: 4px 10px; border-radius: 8px; backgr
   .auth-card { justify-self: stretch; width: 100%; }
   .out { align-items: center; }
 }
+
+.status { display: flex; align-items: center; gap: 10px; margin: -4px 0 16px; font-size: .9rem; }
+.status .spin { width: 16px; height: 16px; border-color: rgba(255,255,255,.2); border-top-color: var(--accent); }
