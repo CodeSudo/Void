@@ -11,7 +11,7 @@ export const APIs = {
       return (data.data?.results || []).map(item => ({
         id: item.id,
         name: item.name,
-        primaryArtists: item.primaryArtists,
+        primaryArtists: item.primaryArtists, artistId: String(item.primaryArtistsId || item.artists?.primary?.[0]?.id || '').split(',')[0].trim(),
         image: item.image,
         downloadUrl: item.downloadUrl,
         duration: item.duration,
@@ -203,7 +203,7 @@ export async function resolveSong(it) {
   try {
     const r = await fetch(`${API_BASE}/songs?id=${encodeURIComponent(it.id)}`).then((x) => x.json());
     const d = Array.isArray(r?.data) ? r.data[0] : r?.data?.songs?.[0] || r?.data;
-    if (d?.downloadUrl?.length) return { id: String(d.id), name: d.name, primaryArtists: d.primaryArtists, image: d.image, downloadUrl: d.downloadUrl, duration: d.duration, source: 'saavn' };
+    if (d?.downloadUrl?.length) return { id: String(d.id), name: d.name, primaryArtists: d.primaryArtists, artistId: String(d.primaryArtistsId || d.artists?.primary?.[0]?.id || '').split(',')[0].trim(), image: d.image, downloadUrl: d.downloadUrl, duration: d.duration, source: 'saavn' };
   } catch { /* fall through to search */ }
   const found = await APIs.saavn.search(`${it.name} ${(it.subtitle || '').split(' - ')[0]}`);
   return found.find((x) => String(x.id) === it.id) || found[0] || null;
