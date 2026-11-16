@@ -34,13 +34,14 @@ img { display: block; }
 .rail button:hover { color: var(--ink); }
 .rail button.on { color: var(--ink); background: rgb(var(--ar) / .18); }
 .main { position: relative; z-index: 1; min-width: 0; overflow-y: auto; }
-.top { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 14px; padding: 16px clamp(16px, 3vw, 40px); background: rgba(8,8,15,.6); backdrop-filter: blur(16px); }
+.top { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 14px; padding: 16px max(clamp(16px, 3vw, 40px), calc((100% - 1400px) / 2 + clamp(16px, 3vw, 40px))); background: rgba(8,8,15,.6); backdrop-filter: blur(16px); }
 .m-logo { display: none; font: 600 1.2rem var(--font-d); letter-spacing: -.06em; }
 .search { flex: 1; max-width: 540px; display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 16px; border-radius: 999px; background: rgba(255,255,255,.07); border: 1px solid var(--line); color: var(--mute); }
 .search:focus-within { border-color: var(--accent); color: var(--ink); }
 .search input { flex: 1; min-width: 0; height: 100%; background: none; border: 0; outline: 0; }
 .search button { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; }
-.page { padding: 4px clamp(16px, 3vw, 40px) 150px; max-width: 1400px; }
+/* The content column is centred; --gutter is its side padding */
+.page { padding: 4px clamp(16px, 3vw, 40px) 150px; max-width: 1400px; margin-inline: auto; }
 .h1 { font: 600 clamp(1.7rem, 3.6vw, 2.6rem)/1.1 var(--font-d); letter-spacing: -.03em; margin: 14px 0 20px; }
 .sub { color: var(--mute); }
 .empty { color: var(--mute); padding: 28px 0; max-width: 46ch; }
