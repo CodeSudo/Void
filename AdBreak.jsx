@@ -3,8 +3,8 @@ import Modal from './Modal';
 import { safeLink } from './ads';
 
 // The ad popup. It cannot be dismissed until `skipAfter` seconds have passed, then it can be skipped, and it ends by itself
-// after `duration` seconds. onDone continues with the song you asked for; onUpgrade does that and opens the plans page.
-export default function AdBreak({ ad, onDone, onUpgrade }) {
+// after `duration` seconds. onDone continues with the song you asked for.
+export default function AdBreak({ ad, onDone }) {
   const start = useRef(Date.now());
   const [elapsed, setElapsed] = useState(0);
   const canSkip = elapsed >= ad.skipAfter;
@@ -28,11 +28,9 @@ export default function AdBreak({ ad, onDone, onUpgrade }) {
           <i style={{ width: `${Math.min(100, (elapsed / ad.duration) * 100)}%` }} />
         </div>
         <div className="acts">
-          {link?.internal && <button className="btn pri" onClick={onUpgrade}>{ad.cta}</button>}
           {link?.href && <a className="btn pri" href={link.href} target="_blank" rel="noopener noreferrer sponsored">{ad.cta}</a>}
           <button className="btn" disabled={!canSkip} onClick={onDone}>{canSkip ? 'Skip ad' : `Skip in ${ad.skipAfter - elapsed}`}</button>
         </div>
-        {!link?.internal && <button className="link-btn small" onClick={onUpgrade}>Remove ads with a pass</button>}
         <p className="sr" aria-live="polite">{canSkip ? 'You can skip the ad now.' : ''}</p>
       </div>
     </Modal>

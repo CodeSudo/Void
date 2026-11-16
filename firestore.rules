@@ -1,22 +1,14 @@
-// Rules for the app, payments and playlist sharing. Merge into your existing rules (Firebase console > Firestore > Rules).
-// - Users can read and edit their own data but never write `plan` (only the server's Admin SDK can).
-// - Users can read their own payment records (billing history) but never write them.
-// - Shared playlists: any signed-in user holding the link can read one; only the owner can create, change or delete it.
+// Firestore rules for Void. Paste into Firebase console > Firestore Database > Rules (merge with yours if you have others).
+// - Everyone can read and write only their own data (likes, history, follows, stats, playlists).
+// - Shared playlists: any signed-in user holding the link can read one; only its owner can create, change or delete it.
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /users/{uid} {
-      allow read: if request.auth != null && request.auth.uid == uid;
-      allow create: if request.auth != null && request.auth.uid == uid && !('plan' in request.resource.data);
-      allow update: if request.auth != null && request.auth.uid == uid
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['plan']);
+      allow read, create, update: if request.auth != null && request.auth.uid == uid;
       match /playlists/{playlistId} {
         allow read, write: if request.auth != null && request.auth.uid == uid;
       }
-    }
-    match /payments/{id} {
-      allow read: if request.auth != null && resource.data.uid == request.auth.uid;
-      allow write: if false;
     }
     match /shares/{id} {
       allow get: if request.auth != null;

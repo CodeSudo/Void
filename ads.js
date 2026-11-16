@@ -4,20 +4,14 @@
 // { "everySongs": 5, "ads": [ { "id": "unique-id", "brand": "Sponsor", "title": "Headline", "body": "A sentence or two.",
 //   "image": "https://…/banner.jpg", "alt": "Describe the image", "cta": "Learn more", "url": "https://sponsor.example",
 //   "duration": 15, "skipAfter": 5, "weight": 1 } ] }
-// "url" may also be "#plans" to open the plans page. With no ads listed, the built-in house ads below are used.
+// With no ads listed, no ads are shown.
 
 export const AD_EVERY = 5;
 const clip = (s, n) => String(s ?? '').trim().slice(0, n);
 const num = (v, lo, hi, d) => { const n = Number(v); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; };
 
-export const HOUSE_ADS = [
-  { id: 'house-adfree', brand: 'Void', title: 'Listen without interruptions', body: 'Any pass removes ads for as long as it lasts.', cta: 'See plans', url: '#plans', duration: 12, skipAfter: 5, weight: 1 },
-  { id: 'house-perks', brand: 'Void', title: 'Crossfade, equalizer and more', body: 'Members get crossfade, a five-band equalizer, playback speed, a sleep timer and no ads.', cta: 'See plans', url: '#plans', duration: 12, skipAfter: 5, weight: 1 },
-];
-
-// A link is either the plans page or a plain http(s) URL; anything else (javascript:, data:, relative) is dropped
+// Only plain http(s) URLs are allowed; anything else (javascript:, data:, relative) is dropped
 export function safeLink(url) {
-  if (url === '#plans') return { internal: true };
   try { const u = new URL(String(url)); return u.protocol === 'https:' || u.protocol === 'http:' ? { href: u.href } : null; } catch { return null; }
 }
 
@@ -28,14 +22,14 @@ export function sanitizeAd(raw) {
   const link = safeLink(raw.url);
   return {
     id: clip(raw.id, 60), brand: clip(raw.brand, 40), title: clip(raw.title, 80), body: clip(raw.body, 200),
-    image, alt: clip(raw.alt, 100), cta: link ? clip(raw.cta, 24) || 'Learn more' : '', url: link ? (link.internal ? '#plans' : link.href) : '',
+    image, alt: clip(raw.alt, 100), cta: link ? clip(raw.cta, 24) || 'Learn more' : '', url: link ? link.href : '',
     duration, skipAfter: num(raw.skipAfter, 0, duration, Math.min(5, duration)), weight: num(raw.weight, 0, 100, 1),
   };
 }
 
 export function normalizeConfig(json) {
   const ads = (Array.isArray(json?.ads) ? json.ads : []).map(sanitizeAd).filter((a) => a && a.weight > 0);
-  return { every: Math.round(num(json?.everySongs, 1, 50, AD_EVERY)), ads: ads.length ? ads : HOUSE_ADS.map(sanitizeAd) };
+  return { every: Math.round(num(json?.everySongs, 1, 50, AD_EVERY)), ads };
 }
 
 export async function loadAds(url, fetchFn = fetch) {
@@ -43,7 +37,7 @@ export async function loadAds(url, fetchFn = fetch) {
     const r = await fetchFn(url, { cache: 'no-store', signal: AbortSignal.timeout(5000) });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return normalizeConfig(await r.json());
-  } catch { return normalizeConfig(null); } // missing, offline or malformed: the house ads still work
+  } catch { return normalizeConfig(null); } // missing, offline or malformed: no ads
 }
 
 // Weighted pick that avoids repeating the last ad when there is a choice

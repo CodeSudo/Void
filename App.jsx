@@ -3,14 +3,12 @@ import './App.css';
 import toast, { Toaster } from 'react-hot-toast';
 import { auth, db } from './firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail, onAuthStateChanged } from 'firebase/auth';
-import { doc, setDoc, getDoc, updateDoc, deleteDoc, arrayUnion, arrayRemove, collection, addDoc, onSnapshot, query, getDocs, where, deleteField, increment } from 'firebase/firestore';
+import { doc, setDoc, getDoc, updateDoc, deleteDoc, arrayUnion, arrayRemove, collection, addDoc, onSnapshot, query, deleteField, increment } from 'firebase/firestore';
 import { API_BASE, APIs, MOODS, fetchLaunch, fetchJson, resolveSong } from './api';
 import { Ic } from './icons';
 import Backdrop from './Backdrop';
 import Modal from './Modal';
 import { AuthScreen, SignedOutScreen } from './Auth';
-import Plans, { fmtDate } from './Plans';
-import { PAY_API, payFetch, loadRazorpay, openCheckout } from './pay';
 import Lyrics from './Lyrics';
 import Sound from './Sound';
 import { fetchSyncedLyrics } from './lrc';
@@ -18,11 +16,12 @@ import { fadeVolume, createEq, EQ_PRESETS } from './audioFx';
 import { saveResume, loadResume, parseShareHash, shareUrl, toShareDoc, trimSong, artistIdOf, firstArtistName, imageUrl, mergeStats, statsUpdate, topOf, fmtDuration } from './userdata';
 import { registerSW, useOnline, useInstall } from './pwa';
 import AdBreak from './AdBreak';
+import MiniPlayer from './MiniPlayer';
 import { loadAds, pickAd, createAdGate } from './ads';
 
 // ---------- Constants ----------
 const ACC = { rose: '255 93 143', ember: '255 142 66', aurora: '96 224 190', ultra: '139 124 255' };
-const NAV = [['home', 'Home', 'home'], ['search', 'Search', 'search'], ['library', 'Library', 'library'], ['plans', 'Plans', 'star'], ['profile', 'Settings', 'user']];
+const NAV = [['home', 'Home', 'home'], ['search', 'Search', 'search'], ['library', 'Library', 'library'], ['profile', 'Settings', 'user']];
 const SPEEDS = [0.75, 1, 1.25, 1.5, 2];
 const LANGS = ['hindi', 'english', 'punjabi', 'tamil', 'telugu', 'marathi', 'gujarati', 'bengali', 'kannada', 'malayalam', 'bhojpuri', 'haryanvi'];
 const TYPE_LABEL = { song: 'Song', album: 'Album', playlist: 'Playlist', artist: 'Artist', radio_station: 'Radio', mix: 'Mix', channel: 'Channel', show: 'Podcast' };
@@ -42,8 +41,10 @@ const AUTH_ERRORS = {
   'auth/too-many-requests': 'Too many attempts. Wait a few minutes and try again.', 'auth/user-disabled': 'This account has been disabled.',
   'auth/network-request-failed': 'Couldn’t reach the server. Check your connection and try again.',
 };
-const LYRICS_PROXY = PAY_API ? PAY_API.replace(/\/pay$/, '/lyrics') : '';
-const cap = (s) => s[0].toUpperCase() + s.slice(1);
+// Optional fallback for lyrics if the browser blocks LRCLIB: the lyrics function in the same project as the home feed
+const HOME_API = import.meta.env.VITE_HOME_API || '';
+const LYRICS_PROXY = /\/home\/?$/.test(HOME_API) ? HOME_API.replace(/\/home\/?$/, '/lyrics') : '';
+const fmtDate = (ms) => new Date(ms).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 const compact = (n) => new Intl.NumberFormat('en-IN', { notation: 'compact' }).format(n);
 const randomOther = (n, cur) => { if (n < 2) return 0; let r; do { r = Math.floor(Math.random() * n); } while (r === cur); return r; };
 const FALLBACK = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="#1a1a28"/><circle cx="5" cy="5" r="2" fill="#2c2c44"/></svg>');
@@ -462,16 +463,16 @@ function App() {
             try {
                 const userSnap = await getDoc(doc(db, "users", u.uid));
                 if(userSnap.exists()) {
-                    const data = userSnap.data(); setPlan(data.plan || null); setFollowed(data.followedArtists || []); setStats(data.stats || null);
+                    const data = userSnap.data(); setFollowed(data.followedArtists || []); setStats(data.stats || null);
                     setLikedSongs(data.likedSongs || []);
                     setHistory(data.history || []);
                 }
-                else { await setDoc(doc(db, "users", u.uid), { email: u.email, likedSongs: [], history: [] }); setPlan(null); }
+                else await setDoc(doc(db, "users", u.uid), { email: u.email, likedSongs: [], history: [] });
                 const q = query(collection(db, `users/${u.uid}/playlists`));
                 plUnsub.current?.(); plUnsub.current = onSnapshot(q, (snapshot) => setUserPlaylists(snapshot.docs.map(d => ({id: d.id, ...d.data()}))));
-            } catch { setPlan((p) => (p === undefined ? null : p)); }
+            } catch {}
         } else { 
-            setUser(null); setPlan(undefined); setFollowed([]); setStats(null); setPayments({ status: 'idle', items: [] }); plUnsub.current?.(); setLikedSongs([]); setUserPlaylists([]); setView(signingOut.current ? 'signedout' : 'auth'); signingOut.current = false; 
+            setUser(null); setFollowed([]); setStats(null); plUnsub.current?.(); setLikedSongs([]); setUserPlaylists([]); setView(signingOut.current ? 'signedout' : 'auth'); signingOut.current = false; 
             setHistory(JSON.parse(localStorage.getItem('musiq_history') || '[]'));
         }
     });
@@ -582,7 +583,7 @@ function App() {
   };
 
   useEffect(() => {
-    if (['home', 'search', 'library', 'plans', 'profile'].includes(tab)) lastMain.current = tab;
+    if (['home', 'search', 'library', 'profile'].includes(tab)) lastMain.current = tab;
     containerRef.current?.scrollTo({ top: 0 });
   }, [tab, selectedItem?.id]);
 
@@ -623,9 +624,8 @@ function App() {
     return () => clearTimeout(t);
   }, [sleepMin]);
 
-  const applySleep = (m) => { if (m && !member) return upsell('The sleep timer'); setSleepMin(m); toast(m ? `Playback pauses in ${m} min` : 'Sleep timer off'); };
+  const applySleep = (m) => { setSleepMin(m); toast(m ? `Playback pauses in ${m} min` : 'Sleep timer off'); };
   const applySpeed = (s) => {
-    if (s !== 1 && !member) return upsell('Playback speed');
     setSpeed(s); audioRef.current.playbackRate = s; audioRef.current.defaultPlaybackRate = s;
     ytPlayerRef.current?.setPlaybackRate?.(s);
   };
@@ -669,70 +669,6 @@ function App() {
       setDetailsSongs((d) => d.filter((x) => x !== song)); toast('Removed from playlist');
     } catch { toast.error('Couldn’t remove the song'); }
   };
-
-  // ───────── Plans and payments ─────────
-  const [plan, setPlan] = useState(undefined); // undefined = still loading, null = no plan
-  const [plansList, setPlansList] = useState([]);
-  const [plansState, setPlansState] = useState(PAY_API ? 'idle' : 'off');
-  const [plansErr, setPlansErr] = useState('');
-  const [payBusy, setPayBusy] = useState(null);
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 60000); return () => clearInterval(t); }, []);
-  const member = !!plan && plan.expiresAt > now;
-  const accentEff = member || plan === undefined ? accent : 'rose';
-
-  const upsell = (what) => toast((t) => (
-    <span>{what} is a member perk. <button className="toast-link" onClick={() => { toast.dismiss(t.id); setTab('plans'); }}>See plans</button></span>
-  ));
-
-  const loadPlans = async () => {
-    if (!PAY_API) return setPlansState('off');
-    setPlansState('loading'); setPlansErr('');
-    try { const r = await payFetch('/plans'); setPlansList(r.plans); setPlansState('ready'); }
-    catch (e) { setPlansErr(e.message); setPlansState('error'); }
-  };
-  useEffect(() => { if (tab === 'plans' && plansState === 'idle') loadPlans(); }, [tab]);
-
-  const buy = async (planId) => {
-    if (payBusy) return;
-    setPayBusy(planId);
-    try {
-      await loadRazorpay();
-      const order = await payFetch('/create-order', { plan: planId });
-      localStorage.setItem('void_pending_order', order.orderId);
-      let paid;
-      try { paid = await openCheckout({ order, email: user.email, onFail: (m) => toast.error(m) }); }
-      catch (e) { localStorage.removeItem('void_pending_order'); throw e; }
-      try {
-        const r = await payFetch('/verify', paid);
-        localStorage.removeItem('void_pending_order'); setPlan(r.plan); loadPayments();
-        toast.success(`${order.plan.name} is active. Enjoy your member perks.`);
-      } catch (e) {
-        const final = e.status && e.status < 500;
-        if (final) localStorage.removeItem('void_pending_order');
-        toast.error(final ? e.message : 'Your payment went through, but we couldn’t confirm it yet. Reopen the app in a moment and it will finish by itself.');
-      }
-    } catch (e) { if (!e.cancelled) toast.error(e.message || 'The payment didn’t go through.'); }
-    finally { setPayBusy(null); }
-  };
-
-  // If the tab closed after paying but before confirmation, finish the job on the next visit
-  useEffect(() => {
-    const id = localStorage.getItem('void_pending_order');
-    if (!id || !user || !PAY_API) return;
-    payFetch('/verify', { orderId: id })
-      .then((r) => { setPlan(r.plan); localStorage.removeItem('void_pending_order'); toast.success('Your payment was confirmed. Member perks are on.'); })
-      .catch((e) => { if (e.status && e.status < 500) localStorage.removeItem('void_pending_order'); });
-  }, [user?.uid]);
-
-  // When a plan runs out, member-only settings go back to their defaults
-  useEffect(() => {
-    if (plan === undefined || member) return;
-    if (speed !== 1) applySpeed(1);
-    if (sleepMin) setSleepMin(0);
-    if (sound.crossfade) setSound((x) => ({ ...x, crossfade: 0 }));
-    if (sound.eq.on) setEqOn(false);
-  }, [member, plan]);
 
   // ───────── Playback engine: resume, crossfade, equalizer ─────────
   const latest = useRef({});
@@ -848,7 +784,7 @@ function App() {
     fadeVolume(inc, volumeRef.current, ms, null, { shape: 'in' });
     fadeVolume(out, 0, ms, () => { out.pause(); out.volume = volumeRef.current; }, { shape: 'out' });
   };
-  crossRef.current.secs = member ? sound.crossfade : 0;
+  crossRef.current.secs = sound.crossfade;
   crossRef.current.trigger = () => {
     const { queue: q, qIndex: i, repeatMode: rm, isShuffle: sh } = latest.current;
     const n = rm === 'one' ? null : sh ? randomOther(q.length, i) : i < q.length - 1 ? i + 1 : rm === 'all' ? 0 : null;
@@ -1020,35 +956,14 @@ function App() {
     return () => window.removeEventListener('hashchange', on);
   }, [user?.uid]);
 
-  // ───────── Billing history, expiry reminders, password reset, offline + install ─────────
-  const [payments, setPayments] = useState({ status: 'idle', items: [] });
-  const loadPayments = async () => {
-    if (!user) return;
-    setPayments((p) => ({ ...p, status: 'loading' }));
-    try {
-      const snap = await getDocs(query(collection(db, 'payments'), where('uid', '==', user.uid)));
-      setPayments({ status: 'ready', items: snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => b.at - a.at) });
-    } catch { setPayments((p) => ({ ...p, status: 'error' })); }
-  };
-  useEffect(() => { if (tab === 'plans' && user && payments.status === 'idle') loadPayments(); }, [tab, user?.uid]);
+  // ───────── Mini player ─────────
+  const [mini, setMini] = useState(() => localStorage.getItem('void_mini') === '1');
+  const [miniPos, setMiniPos] = useState(() => { try { const p = JSON.parse(localStorage.getItem('void_mini_pos')); return { x: +p.x || 0, y: +p.y || 0 }; } catch { return { x: 0, y: 0 }; } });
+  useEffect(() => { localStorage.setItem('void_mini', mini ? '1' : '0'); }, [mini]);
+  useEffect(() => { localStorage.setItem('void_mini_pos', JSON.stringify(miniPos)); }, [miniPos]);
+  useEffect(() => { const reset = () => setMiniPos({ x: 0, y: 0 }); window.addEventListener('resize', reset); return () => window.removeEventListener('resize', reset); }, []);
 
-  const daysLeft = plan && plan.expiresAt > now ? Math.ceil((plan.expiresAt - now) / 86400000) : 0;
-  const reminderKey = plan ? String(plan.expiresAt) : '';
-  const [dismissed, setDismissed] = useState(() => localStorage.getItem('void_reminder'));
-  const expiring = member && daysLeft <= 3, lapsed = !!plan && !member;
-  const reminder = (expiring || lapsed) && dismissed !== reminderKey && (
-    <div className="reminder" role="status">
-      <Ic.bell s={20} />
-      <p>{expiring
-        ? <><b>Your {cap(plan.id)} pass ends {daysLeft <= 1 ? 'within a day' : `in ${daysLeft} days`}</b> ({fmtDate(plan.expiresAt)}). Add time to keep your member perks.</>
-        : <><b>Your {cap(plan.id)} pass ended on {fmtDate(plan.expiresAt)}.</b> Renew to remove ads and bring back accent colors, speed, the sleep timer, crossfade and the equalizer.</>}</p>
-      <div className="acts">
-        {tab !== 'plans' && <button className="btn pri" onClick={() => setTab('plans')}>{expiring ? 'Add time' : 'Renew'}</button>}
-        <button className="btn" onClick={() => { localStorage.setItem('void_reminder', reminderKey); setDismissed(reminderKey); }}>Dismiss</button>
-      </div>
-    </div>
-  );
-
+  // ───────── Password reset, offline + install ─────────
   const submitReset = async (email) => {
     try { await sendPasswordResetEmail(auth, email); return null; }
     catch (e) { if (e.code === 'auth/user-not-found') return null; return AUTH_ERRORS[e.code] || 'We couldn’t send the email. Please try again.'; } // never reveal which emails have accounts
@@ -1058,7 +973,7 @@ function App() {
   const install = useInstall();
   useEffect(() => { registerSW(); }, []);
 
-  // ───────── Ads (free plan only; any pass removes them) ─────────
+  // ───────── Ads (appear once public/ads.json lists at least one) ─────────
   const adGate = useRef(null);
   const adCfg = useRef({ every: 5, ads: [] });
   const adOpen = useRef(false);
@@ -1066,8 +981,7 @@ function App() {
   const [ad, setAd] = useState(null);
   useEffect(() => { loadAds(`${import.meta.env.BASE_URL}ads.json`).then((c) => { adCfg.current = c; adGate.current?.setEvery(c.every); }); }, []);
   useEffect(() => { adGate.current = user ? createAdGate(`void_ad_${user.uid}`, { every: adCfg.current.every }) : null; }, [user?.uid]);
-  // due only once we know the plan, so a member never sees an ad while their plan is still loading
-  const adDue = () => !!adGate.current && plan !== undefined && !member && !adOpen.current && adGate.current.due() && adCfg.current.ads.length > 0;
+  const adDue = () => !!adGate.current && !adOpen.current && adGate.current.due() && adCfg.current.ads.length > 0;
   const openAd = (pending) => {
     try { audioRef.current.pause(); ytPlayerRef.current?.pauseVideo?.(); } catch { /* player not ready */ }
     setIsPlaying(false);
@@ -1076,10 +990,9 @@ function App() {
     sessionStorage.setItem('void_last_ad', next.id);
     setAd(next);
   };
-  const finishAd = (then) => {
+  const finishAd = () => {
     const p = pendingAd.current;
     adOpen.current = false; pendingAd.current = null; setAd(null);
-    if (then === 'plans') setTab('plans');
     if (p) playSong(p.list, p.idx, { ...p.opts, afterAd: true });
   };
 
@@ -1250,12 +1163,12 @@ function App() {
   const vol = muted ? 0 : volume;
 
   return (
-    <div className="shell" style={{ '--ar': ACC[accentEff], '--glow': glow || ACC[accentEff] }}>
+    <div className="shell" style={{ '--ar': ACC[accent], '--glow': glow || ACC[accent] }}>
       <Toaster position="top-center" toastOptions={TOAST} />
       <a className="skip" href="#main">Skip to content</a>
       <p className="sr" aria-live="polite">{currentSong ? `${isPlaying ? 'Now playing' : 'Paused'}: ${getName(currentSong)}` : ''}</p>
       <div key={glow || 'default'} className="aura" />
-      <Backdrop color={glow || ACC[accentEff]} playing={isPlaying} focus={theaterMode} />
+      <Backdrop color={glow || ACC[accent]} playing={isPlaying} focus={theaterMode} />
       <div className="yt-host" aria-hidden="true"><div id="hidden-yt-player" /></div>
 
       {/* Rail (desktop) */}
@@ -1277,6 +1190,7 @@ function App() {
               onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && doSearch()} />
             {searchQuery && <button type="button" aria-label="Clear search" onClick={() => setSearchQuery('')}><Ic.x s={16} /></button>}
           </label>
+          <button className="mini-toggle" aria-pressed={mini} aria-label={mini ? 'Close mini player' : 'Open mini player'} onClick={() => setMini((m) => !m)}><Ic.disc s={20} /></button>
           {!online && <p className="offline" role="status"><Ic.wifiOff s={16} />You’re offline. Search, streaming and sign-in need a connection.</p>}
         </header>
 
@@ -1284,7 +1198,6 @@ function App() {
           {/* HOME */}
           {tab === 'home' && (<>
             <h1 className="h1">{greet}</h1>
-            {reminder}
             <div className="chips langs" role="group" aria-label="Music languages">
               {LANGS.map((l) => <button key={l} aria-pressed={langs.includes(l)} className={`chip${langs.includes(l) ? ' on' : ''}`} onClick={() => toggleLang(l)}>{l[0].toUpperCase() + l.slice(1)}</button>)}
             </div>
@@ -1479,19 +1392,10 @@ function App() {
             </>)}
           </>)}
 
-          {/* PLANS */}
-          {tab === 'plans' && <Plans state={plansState} plans={plansList} error={plansErr} plan={plan} member={member} busy={payBusy} onBuy={buy} onRetry={loadPlans} history={payments} onRetryHistory={loadPayments} reminder={reminder} />}
-
           {/* SETTINGS */}
           {tab === 'profile' && (
             <div className="set">
               <header className="me"><div className="avatar">{user.email[0].toUpperCase()}</div><div><h1 className="h1" style={{ margin: 0 }}>Settings</h1><p className="sub">{user.email}</p></div></header>
-              <section><h2>Plan</h2>
-                <div className="set-row">
-                  <span>{member ? `${plan.id[0].toUpperCase()}${plan.id.slice(1)} until ${fmtDate(plan.expiresAt)}` : 'Free plan'}</span>
-                  <button className="btn" onClick={() => setTab('plans')}>{member ? 'Add time' : 'See plans'}</button>
-                </div>
-              </section>
               <section><h2>Your library</h2>
                 <div className="set-row"><span>Liked songs</span><b>{likedSongs.length}</b></div>
                 <div className="set-row"><span>Playlists</span><b>{userPlaylists.length}</b></div>
@@ -1499,15 +1403,15 @@ function App() {
               </section>
               <section><h2>Accent color</h2>
                 <div className="set-row"><span>Used for buttons and highlights</span>
-                  <div className="chips">{Object.entries(ACC).map(([k, c]) => <button key={k} className={`sw${accentEff === k ? ' on' : ''}`} style={{ '--c': c }} aria-label={k} aria-pressed={accentEff === k} onClick={() => (k === 'rose' || member ? setAccent(k) : upsell('Accent colors'))}>{k !== 'rose' && !member && <Ic.lock s={13} />}</button>)}</div>
+                  <div className="chips">{Object.entries(ACC).map(([k, c]) => <button key={k} className={`sw${accent === k ? ' on' : ''}`} style={{ '--c': c }} aria-label={k} aria-pressed={accent === k} onClick={() => setAccent(k)} />)}</div>
                 </div>
               </section>
               <section><h2>Playback</h2>
                 <div className="set-row"><span>Audio quality</span><div className="chips">{QUALITIES.map(([k, l]) => <button key={k} className={`chip${quality === k ? ' on' : ''}`} onClick={() => handleQualityChange(k)}>{l}</button>)}</div></div>
-                <div className="set-row"><span>Speed</span><div className="chips">{SPEEDS.map((s) => <button key={s} className={`chip${speed === s ? ' on' : ''}`} onClick={() => applySpeed(s)}>{s}×{!member && s !== 1 && <Ic.lock s={13} />}</button>)}</div></div>
-                <div className="set-row"><span>Sleep timer</span><div className="chips">{SLEEP.map((m) => <button key={m} className={`chip${sleepMin === m ? ' on' : ''}`} onClick={() => applySleep(m)}>{m ? `${m} min` : 'Off'}{!member && m > 0 && <Ic.lock s={13} />}</button>)}</div></div>
+                <div className="set-row"><span>Speed</span><div className="chips">{SPEEDS.map((s) => <button key={s} className={`chip${speed === s ? ' on' : ''}`} onClick={() => applySpeed(s)}>{s}×</button>)}</div></div>
+                <div className="set-row"><span>Sleep timer</span><div className="chips">{SLEEP.map((m) => <button key={m} className={`chip${sleepMin === m ? ' on' : ''}`} onClick={() => applySleep(m)}>{m ? `${m} min` : 'Off'}</button>)}</div></div>
               </section>
-              <Sound member={member} upsell={upsell} crossfade={sound.crossfade} onCrossfade={(secs) => setSound((x) => ({ ...x, crossfade: secs }))}
+              <Sound crossfade={sound.crossfade} onCrossfade={(secs) => setSound((x) => ({ ...x, crossfade: secs }))}
                 eq={sound.eq} eqSupported={eqSupported} onEqToggle={setEqOn}
                 onEqGain={(i, v) => setSound((x) => ({ ...x, eq: { ...x.eq, gains: x.eq.gains.map((g, k) => (k === i ? v : g)) } }))}
                 onEqPreset={(g) => setSound((x) => ({ ...x, eq: { ...x.eq, gains: [...g] } }))} />
@@ -1554,6 +1458,13 @@ function App() {
             <button aria-label="Next" onClick={() => playSong(queue, qIndex + 1)}><Ic.next s={20} /></button>
           </div>
         </div>
+      )}
+
+      {mini && (
+        <MiniPlayer song={currentSong} queue={queue} qIndex={qIndex} isPlaying={isPlaying} progress={progress} duration={duration} volume={muted ? 0 : volume}
+          isShuffle={isShuffle} repeatMode={repeatMode} pos={miniPos} setPos={setMiniPos} h={{ name: getName, desc: getDesc, img: getImg, time: formatTime }}
+          onClose={() => setMini(false)} onToggle={togglePlay} onPrev={() => playSong(queue, qIndex - 1)} onNext={() => playSong(queue, qIndex + 1)}
+          onSeek={seekTo} onVolume={changeVol} onMute={toggleMute} onShuffle={toggleShuffle} onRepeat={toggleRepeat} onPlayAt={(i) => playSong(queue, i)} />
       )}
 
       {/* Now playing */}
@@ -1649,7 +1560,7 @@ function App() {
           <div className="acts"><button className="btn" data-autofocus onClick={() => setConfirmOut(false)}>Stay signed in</button><button className="btn danger" onClick={doSignOut}><Ic.logout s={18} />Sign out</button></div>
         </Modal>
       )}
-      {ad && <AdBreak ad={ad} onDone={() => finishAd()} onUpgrade={() => finishAd('plans')} />}
+      {ad && <AdBreak ad={ad} onDone={finishAd} />}
     </div>
   );
 }
